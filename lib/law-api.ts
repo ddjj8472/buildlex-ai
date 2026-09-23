@@ -33,7 +33,7 @@ function textValue(value: unknown): string {
 
 async function getJson(url: URL): Promise<JsonRecord> {
   const response = await fetch(url, {
-    headers: { "User-Agent": "con-reg-lite/0.1 educational-demo" },
+    headers: { "User-Agent": "buildlex-ai/0.1 educational-demo" },
     next: { revalidate: 60 * 60 * 12 },
   });
   if (!response.ok) throw new Error(`법제처 API 오류 (${response.status})`);
