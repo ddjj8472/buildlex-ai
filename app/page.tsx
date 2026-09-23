@@ -59,9 +59,9 @@ export default function Home() {
   return (
     <main>
       <nav className="nav">
-        <a className="brand" href="#top" aria-label="Con-Reg Lite 홈">
-          <span className="brandMark">CR</span>
-          <span>Con-Reg <b>Lite</b></span>
+        <a className="brand" href="#top" aria-label="BuildLex AI 홈">
+          <span className="brandMark">BL</span>
+          <span>BuildLex <b>AI</b></span>
         </a>
         <span className="status"><i /> 법제처 현행법령 연동</span>
       </nav>
@@ -149,7 +149,7 @@ export default function Home() {
       </section>
 
       <footer>
-        <span>Con-Reg Lite · 교육용 MVP</span>
+        <span>BuildLex AI · 교육용 MVP</span>
         <span>법령 데이터: 국가법령정보센터</span>
       </footer>
     </main>
