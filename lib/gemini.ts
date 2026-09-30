@@ -11,7 +11,7 @@ type GeminiResponse = {
 function formatEvidence(articles: LawArticle[]): string {
   return articles.map((article, index) => [
     `[근거 ${index + 1}] ${article.lawName} ${article.title}`,
-    `${article.sourceType === "공식 질의회답" ? "회신일 (현재 법령과 구분)" : "시행일"}: ${article.effectiveDate}`,
+    `${article.sourceType === "공식 질의회답" ? `${article.dateLabel || "회신"}일 (현재 법령과 구분)` : "시행일"}: ${article.effectiveDate}`,
     evidenceUnits(article).map((text, i) => `[문구 ${i + 1}] ${text}`).join("\n") + (article.text.length > 6500 ? "\n[이 조문은 일부 발췌입니다. 이후 내용과 단서·예외는 미확인입니다.]" : ""),
   ].join("\n")).join("\n\n---\n\n");
 }
@@ -65,7 +65,7 @@ ${formatEvidence(evidence)}`;
 
   const response = await fetch(endpoint, {
     method: "POST",
-    signal: AbortSignal.timeout(16000),
+    signal: AbortSignal.timeout(28000),
     headers: {
       "Content-Type": "application/json",
       "x-goog-api-key": apiKey,
@@ -88,7 +88,7 @@ ${formatEvidence(evidence)}`;
   try { renderGroundedAnswer(answer, evidence); }
   catch (error) { validationFeedback = `잠정 JSON 검증 실패: ${error instanceof Error ? error.message : "형식 오류"}. 해당 항목을 원문에 맞게 수정하십시오.`; }
   const review = await fetch(endpoint, {
-    method: "POST", signal: AbortSignal.timeout(16000),
+    method: "POST", signal: AbortSignal.timeout(25000),
     headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
     body: JSON.stringify({
       contents: [{ role: "user", parts: [{ text: `당신은 건축법규 답변의 근거 검토자입니다. 아래 잠정 답변을 독립적으로 검사하고, 오류를 제거한 최종 JSON을 반환하십시오.

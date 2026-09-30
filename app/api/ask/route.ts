@@ -7,7 +7,7 @@ import { findOfficialCases } from "@/lib/official-cases";
 import { selectEvidence } from "@/lib/evidence";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 export async function POST(request: Request) {
   try {
