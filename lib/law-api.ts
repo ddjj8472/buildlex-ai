@@ -41,10 +41,24 @@ async function getJson(url: URL): Promise<JsonRecord> {
   return response.json() as Promise<JsonRecord>;
 }
 
-function buildSourceUrl(target: "law" | "ordin", serial: string): string {
-  return target === "law"
-    ? `${LAW_HOME}/법령/법령정보?lsId=${encodeURIComponent(serial)}`
-    : `${LAW_HOME}/자치법규/자치법규정보?gubun=ELIS&serial=${encodeURIComponent(serial)}`;
+export function buildSourceUrl(target: "law" | "ordin", serial: string, officialLink = ""): string {
+  // The API's law ID and revision serial are different identifiers. Link to
+  // the exact revision used as evidence, never to an invented name permalink.
+  if (officialLink.trim()) {
+    try {
+      const url = new URL(officialLink.replace(/&amp;/g, "&"), LAW_HOME);
+      if (["law.go.kr", "www.law.go.kr"].includes(url.hostname)
+        && ["http:", "https:"].includes(url.protocol)
+        && !url.username && !url.password
+        && !url.pathname.startsWith("/DRF/")) {
+        url.protocol = "https:";
+        return url.toString();
+      }
+    } catch { /* Use the public revision viewer below. */ }
+  }
+  const url = new URL(target === "law" ? "/LSW/lsInfoP.do" : "/LSW/ordinInfoP.do", LAW_HOME);
+  url.searchParams.set(target === "law" ? "lsiSeq" : "ordinSeq", serial);
+  return url.toString();
 }
 
 function flattenNationalArticle(raw: JsonRecord, lawName: string, date: string, url: string): LawArticle | null {
@@ -119,7 +133,7 @@ export async function fetchNationalLaw(lawName: string): Promise<LawArticle[]> {
   detailUrl.search = new URLSearchParams({ OC: oc, target: "law", type: "JSON", MST: mst }).toString();
   const detail = asRecord((await getJson(detailUrl))["법령"]);
   const articles = asArray(asRecord(detail["조문"])["조문단위"] as JsonRecord | JsonRecord[] | undefined);
-  const sourceUrl = buildSourceUrl("law", textValue(exact["법령ID"]) || mst);
+  const sourceUrl = buildSourceUrl("law", mst, textValue(exact["법령상세링크"]));
   return articles.map((article) => flattenNationalArticle(asRecord(article), lawName, date, sourceUrl)).filter(Boolean) as LawArticle[];
 }
 
@@ -143,6 +157,6 @@ export async function fetchLocalOrdinance(region: string): Promise<LawArticle[]>
   detailUrl.search = new URLSearchParams({ OC: oc, target: "ordin", type: "JSON", MST: mst }).toString();
   const detail = asRecord((await getJson(detailUrl))["LawService"]);
   const articles = asArray(asRecord(detail["조문"])["조"] as JsonRecord | JsonRecord[] | undefined);
-  const sourceUrl = buildSourceUrl("ordin", textValue(exact["자치법규ID"]) || mst);
+  const sourceUrl = buildSourceUrl("ordin", mst, textValue(exact["자치법규상세링크"]));
   return articles.map((article) => flattenOrdinanceArticle(asRecord(article), lawName, date, sourceUrl)).filter(Boolean) as LawArticle[];
 }
