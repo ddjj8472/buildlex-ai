@@ -30,6 +30,8 @@ test("공동주택·시공·정비사업의 필요한 법률을 누락하지 않
   assert.ok(buildSearchPlan(queries[0][0]).laws.includes("공동주택관리법 시행령"));
   assert.ok(buildSearchPlan("주택법 제34조의 시공 제한 범위").laws.includes("건설산업기본법"));
   assert.ok(buildSearchPlan("도시정비법 다물건자 조합원 지위 시점").laws.includes("도시 및 주거환경정비법"));
+  assert.ok(!buildSearchPlan(queries[0][0]).laws.includes("주차장법"));
+  assert.ok(buildSearchPlan("아파트 부설주차장 주차대수 설치기준").laws.includes("주차장법"));
 });
 const article = (lawName: string, title: string, text: string): LawArticle => ({lawName, title, text, effectiveDate:"20260101", sourceUrl:"", sourceType:"국가법령"});
 test("관련 조문의 명시적 다른 법률 인용을 한 단계 연결한다", () => {
@@ -43,6 +45,17 @@ test("조합원 자격의 직접 조문이 포괄적인 건축 절차보다 먼�
   const broad = article("건축법", "제11조(건축허가)", "조합원 조합설립인가 다물건자 건축허가");
   const q = "도시정비법 다물건자 조합원 지위 시점";
   assert.equal(rankArticles([broad, direct], q, buildSearchPlan(q).keywords)[0], direct);
+});
+test("시행규칙의 법·영 인용을 시행규칙 동번호 조문으로 잘못 연결하지 않는다", () => {
+  const main = article("공동주택관리법 시행규칙", "제15조(행위허가)", "법 제35조 및 영 제35조에 따른 행위허가 기준입니다.");
+  const law = article("공동주택관리법", "제35조(행위허가 기준)", "행위허가의 기준");
+  const decree = article("공동주택관리법 시행령", "제35조(행위허가 기준)", "행위허가의 기준");
+  const wrong = article("공동주택관리법 시행규칙", "제35조(조정 비용)", "조정 비용");
+  const pool = [main, law, decree, wrong, ...Array.from({length:10}, (_,i) => article("공동주택관리법", `제${100+i}조(행위허가)`, "행위허가 기준"))];
+  const selected = selectEvidence(pool, "공동주택관리법 시행규칙 제15조 행위허가", ["행위허가"]);
+  assert.ok(selected.includes(law));
+  assert.ok(selected.includes(decree));
+  assert.ok(!selected.includes(wrong));
 });
 test("원문에 없는 인용과 수치를 거부한다", () => {
   const ev = [article("가상 검사 법령", "제1조(기준)", "해당 시설의 변경은 입주자 3분의 2 이상 동의를 받아 신고해야 합니다.")];

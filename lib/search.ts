@@ -45,9 +45,13 @@ export function tokenize(text: string): string[] {
 
 export function buildSearchPlan(query: string): SearchPlan {
   const expandedQuery = `${query} ${concepts(query).flat().join(" ")}`;
-  const matched = LAW_TOPICS.filter((topic) =>
+  let matched = LAW_TOPICS.filter((topic) =>
     topic.triggers.some((trigger) => normalized(expandedQuery).includes(normalized(trigger))),
   );
+  if (matched.some(t => t.id === "housing") && /공원|조경|운동시설|테니스|집하장/.test(query)
+    && /주차|휴게/.test(query) && !/주차대수|설치기준|주차구획|차로|주차장법/.test(query)) {
+    matched = matched.filter(t => t.id !== "parking");
+  }
   const selected = matched.length ? matched : LAW_TOPICS.filter(topic => ["permit", "site"].includes(topic.id));
 
   return {

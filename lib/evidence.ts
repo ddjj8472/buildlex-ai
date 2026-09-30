@@ -8,10 +8,12 @@ export function selectEvidence(articles: LawArticle[], query: string, keywords: 
   // Follow one hop of explicit citations within already fetched laws. The
   // referenced provision gets a slot even when its vocabulary differs.
   for (const article of ranked.slice(0, 3)) {
-    const references = [...article.text.matchAll(/(?:「([^」]+)」\s*)?(?:같은\s*(?:법|영)\s*)?제\s*(\d+)\s*조(?:\s*의\s*(\d+))?/g)];
+    const references = [...article.text.matchAll(/(?:(?:「([^」]+)」|(같은\s*법|같은\s*영|법|영))\s*)?제\s*(\d+)\s*조(?:\s*의\s*(\d+))?/g)];
     for (const ref of references) {
-      const name = ref[1] || article.lawName;
-      const prefix = `제${ref[2]}조${ref[3] ? `의${ref[3]}` : ""}`;
+      const base = article.lawName.replace(/\s*시행(?:령|규칙)$/, "");
+      const marker = ref[2]?.replace(/\s/g, "");
+      const name = ref[1] || (marker?.endsWith("영") ? `${base} 시행령` : marker?.endsWith("법") ? base : article.lawName);
+      const prefix = `제${ref[3]}조${ref[4] ? `의${ref[4]}` : ""}`;
       const linked = articles.find(a => compact(a.lawName) === compact(name)
         && (compact(a.title) === prefix || compact(a.title).startsWith(prefix + "(")));
       if (linked && !selected.some(a => a.lawName === linked.lawName && a.title === linked.title)) selected.push(linked);

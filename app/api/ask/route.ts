@@ -56,9 +56,12 @@ export async function POST(request: Request) {
     let answerGenerated = true;
     try {
       answer = await generateLegalAnswer(query, region, evidence, warnings);
-    } catch {
+    } catch (error) {
       answerGenerated = false;
-      warnings.push("AI 답변 생성이 완료되지 않았습니다. 검색된 조문은 제공하지만 법규 적용 판단은 미완료입니다.");
+      const validationFailed = error instanceof Error && /검증|원문에 없는|근거에 없는|근거 없는|형식 오류/.test(error.message);
+      warnings.push(validationFailed
+        ? "AI 답변의 근거 문구·수치 검증을 통과하지 못해 판단을 표시하지 않았습니다. 검색된 원문을 확인해 주세요."
+        : "AI 답변 생성이 완료되지 않았습니다. 검색된 조문은 제공하지만 법규 적용 판단은 미완료입니다.");
       answer = buildUnavailableAnswer(evidence);
     }
     return NextResponse.json({
