@@ -33,6 +33,8 @@ export async function POST(request: Request) {
     if (region && !localArticles.length) warnings.push(`${region} 건축 조례를 확보하지 못했습니다. 지역 기준은 미확인입니다.`);
     if (plan.topics.some(topic => /용적률|부설주차장/.test(topic))) warnings.push("도시계획·주차장 조례와 별표는 이번 검색 범위에 포함되지 않습니다. 지역별 수치는 별도 확인해야 합니다.");
     const evidence = rankArticles([...nationalArticles, ...localArticles], query, plan.keywords, 8);
+    if (evidence.some(article => /별표/.test(article.text))) warnings.push("검색 조문이 인용하는 별표 원문은 수집되지 않았습니다. 별표의 수치·예외는 미확인입니다.");
+    if (evidence.some(article => article.text.length > 6500)) warnings.push("긴 조문 일부는 발췌하여 답변했습니다. 생략된 단서·예외는 원문 확인이 필요합니다.");
 
     if (!evidence.length) {
       return NextResponse.json({
