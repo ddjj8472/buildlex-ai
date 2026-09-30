@@ -67,3 +67,10 @@ test("dense scoring ranks the nearest vector first", () => {
   const s = denseScores(index, [0.1, 1, 0]);
   assert.equal([...s].indexOf(Math.max(...s)), 1);
 });
+
+test("verifier accepts [근거 n] citations", async () => {
+  const { evidence } = await hybridSearch(ruleAnalysis("대수선의 범위"), { dense: false });
+  const v = verifyAnswer("대수선 범위는 시행령에 있습니다[근거 1]. 추가로 [근거 2, 3] 참고.", evidence);
+  assert.equal(v.ok, true);
+  assert.deepEqual(v.cited, [1, 2, 3]);
+});

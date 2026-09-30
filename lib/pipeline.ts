@@ -66,7 +66,7 @@ async function analyze(input: AskInput): Promise<QueryAnalysis> {
   const national = loadNational();
   const names = [...new Set(national.corpus.laws.map(l => l.lawName))];
   try {
-    const raw = await generateJSON<Partial<QueryAnalysis>>(analysisPrompt(input.query, input.history || [], input.facts || {}, names), { timeoutMs: 10000, signal: input.signal });
+    const raw = await generateJSON<Partial<QueryAnalysis>>(analysisPrompt(input.query, input.history || [], input.facts || {}, names), { timeoutMs: 12000, signal: input.signal });
     const validLaws = (raw.laws || []).filter(n => typeof n === "string" && national.laws.has(lawKeyOf(n)));
     const cleanFacts = Object.fromEntries(Object.entries(raw.facts || {}).filter(([, v]) => typeof v === "string" && v.trim())) as SiteFacts;
     return {
@@ -92,7 +92,7 @@ const llmReranker = (signal?: AbortSignal, onError?: (m: string) => void): Reran
 
 async function rerankOnce(query: string, candidates: Parameters<Reranker>[1], signal?: AbortSignal) {
   const items = candidates.map(c => ({ id: c.id, label: `${c.lawName} ${c.articleNo}(${c.heading})`, text: c.text.slice(0, 380).replace(/\s+/g, " ") }));
-  const res = await generateJSON<{ scores: Record<string, number> }>(rerankPrompt(query, items), { model: FAST_MODEL, timeoutMs: 10000, signal });
+  const res = await generateJSON<{ scores: Record<string, number> }>(rerankPrompt(query, items), { model: FAST_MODEL, timeoutMs: 12000, signal });
   const m = new Map<string, number>();
   for (const [id, s] of Object.entries(res.scores || {})) if (typeof s === "number") m.set(id, Math.max(0, Math.min(3, s)));
   return m;

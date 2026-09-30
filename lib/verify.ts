@@ -12,7 +12,7 @@ export type Verification = { ok: boolean; issues: string[]; cited: number[] };
 export function verifyAnswer(answer: string, evidence: Evidence[]): Verification {
   const issues: string[] = [];
   const cited = new Set<number>();
-  for (const m of answer.matchAll(/\[(\d+(?:\s*[,，]\s*\d+)*)\]/g)) for (const n of m[1].split(/[,，]/)) cited.add(Number(n.trim()));
+  for (const m of answer.matchAll(/\[(?:근거\s*)?(\d+(?:\s*[,，]\s*(?:근거\s*)?\d+)*)\]/g)) for (const n of m[1].split(/[,，]/)) cited.add(Number(n.replace(/근거/, "").trim()));
   const bad = [...cited].filter(n => n < 1 || n > evidence.length);
   if (bad.length) issues.push(`존재하지 않는 근거 번호 인용: ${bad.map(n => `[${n}]`).join(", ")}`);
   if (!cited.size && answer.trim()) issues.push("답변에 근거 번호가 없습니다.");

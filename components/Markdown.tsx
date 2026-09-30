@@ -7,7 +7,7 @@ type Props = { text: string; max: number; onCite: (n: number) => void; streaming
 
 function inline(text: string, max: number, onCite: (n: number) => void, key: string): ReactNode[] {
   const out: ReactNode[] = [];
-  const re = /\*\*(.+?)\*\*|\[(\d+(?:\s*[,，]\s*\d+)*)\]|\[근거\s*(\d+)\]/g;
+  const re = /\*\*(.+?)\*\*|\[(?:근거\s*)?(\d+(?:\s*[,，]\s*(?:근거\s*)?\d+)*)\]/g;
   let last = 0;
   let m: RegExpExecArray | null;
   let i = 0;
@@ -15,7 +15,7 @@ function inline(text: string, max: number, onCite: (n: number) => void, key: str
     if (m.index > last) out.push(text.slice(last, m.index));
     if (m[1]) out.push(<strong key={`${key}b${i++}`}>{m[1]}</strong>);
     else {
-      const nums = (m[2] || m[3]).split(/[,，]/).map(s => Number(s.trim()));
+      const nums = m[2].split(/[,，]/).map(s => Number(s.replace(/근거/, "").trim()));
       nums.forEach(n => out.push(
         <button key={`${key}c${i++}`} type="button" className={`cite${n < 1 || n > max ? " bad" : ""}`} onClick={() => onCite(n)} title={n <= max ? `근거 ${n} 보기` : "근거 목록에 없는 번호"}>{n}</button>,
       ));
