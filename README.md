@@ -65,7 +65,7 @@ scripts/
   build-corpus.ts    조문 파싱, 현행 버전 선택, 인용 그래프 생성
   embed.ts           의미 검색 색인 생성 (증분)
   eval-retrieval.ts  검색 정확도 평가
-.github/workflows/refresh-corpus.yml   매주 코퍼스 자동 갱신
+docs/refresh-corpus.workflow.yml       매주 코퍼스 자동 갱신 (.github/workflows로 옮겨 사용)
 ```
 
 ## 실행
@@ -98,7 +98,7 @@ npm test && npm run eval
 3. `/api/ask`는 `maxDuration = 60`입니다. 자동 재검색 모드는 시간이 더 걸릴 수 있으니, 가능하면 Pro 플랜에서 더 긴 실행 시간을 쓰세요.
 4. 코퍼스 파일은 `next.config.ts`의 `outputFileTracingIncludes`로 서버 함수에 포함됩니다(약 45MB).
 
-GitHub Actions 시크릿(`LAW_API_OC`, `GEMINI_API_KEY`)을 등록하면, 매주 코퍼스를 새로 빌드해 커밋합니다. 커밋되면 Vercel이 자동으로 다시 배포합니다.
+매주 코퍼스 자동 갱신: `docs/refresh-corpus.workflow.yml`을 GitHub 웹에서 `.github/workflows/refresh-corpus.yml`로 옮기고, Actions 시크릿(`LAW_API_OC`, `GEMINI_API_KEY`)을 등록하세요. 매주 코퍼스를 새로 빌드해 커밋하고, Vercel이 자동으로 다시 배포합니다. (워크플로 파일은 토큰 권한 문제로 웹 화면에서 추가해야 합니다.)
 
 ## 확장 방법
 
