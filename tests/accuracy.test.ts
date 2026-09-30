@@ -3,6 +3,7 @@ import test from "node:test";
 import { findOfficialCases } from "../lib/official-cases.ts";
 import { renderGroundedAnswer } from "../lib/grounding.ts";
 import { selectEvidence } from "../lib/evidence.ts";
+import { evidenceUnits } from "../lib/evidence-units.ts";
 import { buildSearchPlan, rankArticles } from "../lib/search.ts";
 import type { LawArticle } from "../lib/law-api.ts";
 
@@ -80,4 +81,10 @@ test("문구 번호로 원문을 선택하고 잘못된 포인터는 거부한�
   assert.throws(() => renderGroundedAnswer(raw(2), ev));
   const short = [article("시행규칙", "제15조(행위허가 신청 등)", "가. 동의서")];
   assert.ok(renderGroundedAnswer(JSON.stringify({claims:[{text:"동의서를 첨부합니다.",supports:[{source:1,unit:1}]}],missing:[],next:[]}), short).includes("[근거 1]"));
+});
+test("열거된 행위에 적용되는 항의 조건을 문구와 함께 보존한다", () => {
+  const law = article("시행규칙", "제15조(신청 등)", "제15조(신청 등)\n① 경미한 행위란 다음 행위를 말한다.\n1. 다른 운동종목으로 교체하는 경우\n② 신고할 사항이란 다음 행위를 말한다.\n1. 시설 규모를 변경하는 경우");
+  const units = evidenceUnits(law);
+  assert.ok(units.some(u => u.includes("경미한 행위") && u.includes("운동종목")));
+  assert.ok(!units.some(u => u.includes("경미한 행위") && u.includes("시설 규모")));
 });

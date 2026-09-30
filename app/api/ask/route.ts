@@ -7,7 +7,7 @@ import { findOfficialCases } from "@/lib/official-cases";
 import { selectEvidence } from "@/lib/evidence";
 
 export const runtime = "nodejs";
-export const maxDuration = 90;
+export const maxDuration = 120;
 
 export async function POST(request: Request) {
   try {
@@ -63,7 +63,8 @@ export async function POST(request: Request) {
         ? "Gemini API 사용량 한도에 도달했습니다. 잠시 후 다시 시도해 주세요."
         : /timeout|aborted|시간/i.test(message) || (error instanceof Error && error.name === "TimeoutError")
           ? "Gemini 답변 또는 근거 재검토가 제한 시간 안에 완료되지 않았습니다."
-          : /재검토/.test(message) ? "AI 근거 재검토를 완료하지 못했습니다."
+          : /빈 응답/.test(message) ? "Gemini가 빈 답변을 반환했습니다."
+            : /재검토/.test(message) ? "AI 근거 재검토를 완료하지 못했습니다."
             : /MAX_TOKENS|길어|중단/.test(message) ? "AI 생성이 중단되어 완전한 답변을 제공하지 않았습니다."
               : "AI 답변 생성이 완료되지 않았습니다.";
       const validationFailed = error instanceof Error && /검증|원문에 없는|근거에 없는|근거 없는|형식 오류/.test(error.message);

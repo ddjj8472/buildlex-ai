@@ -7,7 +7,9 @@ type GroundedResult = { claims: Claim[]; missing: string[]; next: string[] };
 const compact = (s: string) => s.normalize("NFKC").replace(/\s+/g, "");
 
 export function renderGroundedAnswer(raw: string, evidence: LawArticle[]): string {
-  const data = JSON.parse(raw) as GroundedResult;
+  let data: GroundedResult;
+  try { data = JSON.parse(raw) as GroundedResult; }
+  catch { throw new Error("답변 JSON 형식 검증 실패"); }
   if (!Array.isArray(data.claims) || !data.claims.length || data.claims.length > 8
     || !Array.isArray(data.missing) || !Array.isArray(data.next)) throw new Error("답변 구조 검증 실패");
   const claims = data.claims.map((claim, index) => {
