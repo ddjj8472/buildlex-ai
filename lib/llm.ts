@@ -2,7 +2,8 @@
 // MOCK_LLM=1 switches to deterministic fakes for local UI testing.
 
 export const MODEL = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
-export const FAST_MODEL = process.env.GEMINI_FAST_MODEL || MODEL;
+/** Lighter model for structured calls (analysis, rerank, evaluation). */
+export const FAST_MODEL = process.env.GEMINI_FAST_MODEL || "gemini-flash-lite-latest";
 /** Tried in order when the main model is overloaded (comma-separated env). */
 export const FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS || "gemini-flash-latest,gemini-flash-lite-latest").split(",").map(s => s.trim()).filter(Boolean);
 const API = (process.env.GEMINI_API_BASE || "https://generativelanguage.googleapis.com/v1beta") + "/models";
@@ -18,18 +19,24 @@ function headers() {
 }
 
 export async function generateJSON<T>(prompt: string, opts: { model?: string; timeoutMs?: number; maxTokens?: number; signal?: AbortSignal } = {}): Promise<T> {
-  try {
-    return await generateJSONOnce<T>(prompt, opts);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (opts.signal?.aborted || !/404|429|500|502|503|504|NOT_FOUND|UNAVAILABLE|high demand|RESOURCE_EXHAUSTED|빈 응답|JSON/i.test(msg)) throw e;
-    let last: unknown = e;
-    for (const model of [opts.model || FAST_MODEL, ...FALLBACK_MODELS]) {
-      await new Promise(r => setTimeout(r, 500));
-      try { return await generateJSONOnce<T>(prompt, { ...opts, model }); } catch (err) { last = err; if (opts.signal?.aborted) break; }
+  // Try the requested (fast) model, then the main model, then aliases — but only for
+  // quick failures (overload, missing model, empty/invalid JSON). A timeout is final:
+  // retrying it would blow the request's time budget.
+  const models = [...new Set([opts.model || FAST_MODEL, MODEL, ...FALLBACK_MODELS])].slice(0, 3);
+  const deadline = Date.now() + (opts.timeoutMs ?? 12000);
+  let last: unknown;
+  for (const model of models) {
+    const left = deadline - Date.now();
+    if (left < 1500) break;
+    try { return await generateJSONOnce<T>(prompt, { ...opts, model, timeoutMs: left }); }
+    catch (e) {
+      last = e;
+      const msg = e instanceof Error ? `${e.name} ${e.message}` : String(e);
+      if (opts.signal?.aborted || /timeout|abort/i.test(msg)) break;
+      if (!/404|429|500|502|503|504|NOT_FOUND|UNAVAILABLE|high demand|RESOURCE_EXHAUSTED|빈 응답|JSON/i.test(msg)) break;
     }
-    throw last;
   }
+  throw last ?? new Error("시간 부족");
 }
 
 async function generateJSONOnce<T>(prompt: string, opts: { model?: string; timeoutMs?: number; maxTokens?: number; signal?: AbortSignal } = {}): Promise<T> {

@@ -66,7 +66,7 @@ async function analyze(input: AskInput): Promise<QueryAnalysis> {
   const national = loadNational();
   const names = [...new Set(national.corpus.laws.map(l => l.lawName))];
   try {
-    const raw = await generateJSON<Partial<QueryAnalysis>>(analysisPrompt(input.query, input.history || [], input.facts || {}, names), { timeoutMs: 12000, signal: input.signal });
+    const raw = await generateJSON<Partial<QueryAnalysis>>(analysisPrompt(input.query, input.history || [], input.facts || {}, names), { timeoutMs: 10000, signal: input.signal });
     const validLaws = (raw.laws || []).filter(n => typeof n === "string" && national.laws.has(lawKeyOf(n)));
     const cleanFacts = Object.fromEntries(Object.entries(raw.facts || {}).filter(([, v]) => typeof v === "string" && v.trim())) as SiteFacts;
     return {
@@ -92,7 +92,7 @@ const llmReranker = (signal?: AbortSignal, onError?: (m: string) => void): Reran
 
 async function rerankOnce(query: string, candidates: Parameters<Reranker>[1], signal?: AbortSignal) {
   const items = candidates.map(c => ({ id: c.id, label: `${c.lawName} ${c.articleNo}(${c.heading})`, text: c.text.slice(0, 380).replace(/\s+/g, " ") }));
-  const res = await generateJSON<{ scores: Record<string, number> }>(rerankPrompt(query, items), { model: FAST_MODEL, timeoutMs: 12000, signal });
+  const res = await generateJSON<{ scores: Record<string, number> }>(rerankPrompt(query, items), { model: FAST_MODEL, timeoutMs: 10000, signal });
   const m = new Map<string, number>();
   for (const [id, s] of Object.entries(res.scores || {})) if (typeof s === "number") m.set(id, Math.max(0, Math.min(3, s)));
   return m;
@@ -163,7 +163,7 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
 
   const retrieve = async (a: QueryAnalysis) => {
     const [{ evidence, debug }, interp] = await Promise.all([
-      hybridSearch(a, { region: effRegion, rerank: hasLLM() && !isMock() ? llmReranker(input.signal, m => warnings.push(`AI 재순위 생략: ${m}`)) : undefined }),
+      hybridSearch(a, { region: effRegion, rerank: hasLLM() && !isMock() && elapsed() < 18000 ? llmReranker(input.signal, m => warnings.push(`AI 재순위 생략: ${m}`)) : undefined }),
       lawApiEnabled() ? relevantInterpretations(a).catch(() => []) : Promise.resolve([]),
     ]);
     interpretations = interp;
@@ -212,17 +212,18 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
       const models = [...new Set([MODEL, ...FALLBACK_MODELS])];
       let lastError = "";
       for (const [i, model] of models.flatMap(m => [m, m]).entries()) {
+        if (elapsed() > 44000) break;
         if (i > 0) await new Promise(r => setTimeout(r, 600 * i));
         try {
           if (answer) { emit({ type: "reset" }); answer = ""; }
-          for await (const d of streamText(prompt, { model, signal: input.signal })) { answer += d; emit({ type: "delta", text: d }); }
+          for await (const d of streamText(prompt, { model, signal: input.signal, timeoutMs: Math.max(10000, 52000 - elapsed()) })) { answer += d; emit({ type: "delta", text: d }); }
           if (answer.trim()) {
             if (model !== MODEL) emit({ type: "warning", message: `기본 모델이 혼잡해 ${model} 모델로 답변했습니다.` });
             return answer;
           }
         } catch (e) {
           lastError = e instanceof Error ? e.message : String(e);
-          if (input.signal?.aborted || !/\b(404|429|500|502|503|504)\b|NOT_FOUND|UNAVAILABLE|overloaded|high demand|RESOURCE_EXHAUSTED|fetch failed|timeout/i.test(lastError)) break;
+          if (input.signal?.aborted || !/\b(404|429|500|502|503|504)\b|NOT_FOUND|UNAVAILABLE|overloaded|high demand|RESOURCE_EXHAUSTED|fetch failed/i.test(lastError)) break;
         }
       }
       if (answer) emit({ type: "reset" });
