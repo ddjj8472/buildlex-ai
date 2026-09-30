@@ -88,7 +88,7 @@ ${formatEvidence(evidence)}`;
   try { renderGroundedAnswer(answer, evidence); }
   catch (error) { validationFeedback = `잠정 JSON 검증 실패: ${error instanceof Error ? error.message : "형식 오류"}. 해당 항목을 원문에 맞게 수정하십시오.`; }
   const review = await fetch(endpoint, {
-    method: "POST", signal: AbortSignal.timeout(12000),
+    method: "POST", signal: AbortSignal.timeout(16000),
     headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
     body: JSON.stringify({
       contents: [{ role: "user", parts: [{ text: `당신은 건축법규 답변의 근거 검토자입니다. 아래 잠정 답변을 독립적으로 검사하고, 오류를 제거한 최종 JSON을 반환하십시오.
@@ -109,7 +109,7 @@ ${formatEvidence(evidence)}`;
       generationConfig: { temperature: 0, maxOutputTokens: 2400, responseMimeType: "application/json" },
     }),
   });
-  if (!review.ok) throw new Error("AI 근거 재검토를 완료하지 못했습니다.");
+  if (!review.ok) throw new Error(`AI 근거 재검토 API 오류 (${review.status})`);
   const reviewed = await review.json() as GeminiResponse;
   if ((reviewed.candidates?.[0] as {finishReason?: string})?.finishReason === "MAX_TOKENS") throw new Error("AI 근거 재검토 중단");
   const final = reviewed.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("\n").trim();

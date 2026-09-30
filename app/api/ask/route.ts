@@ -58,10 +58,18 @@ export async function POST(request: Request) {
       answer = await generateLegalAnswer(query, region, evidence, warnings);
     } catch (error) {
       answerGenerated = false;
+      const message = error instanceof Error ? error.message : "";
+      const serviceReason = /quota|RESOURCE_EXHAUSTED|429|rate.limit/i.test(message)
+        ? "Gemini API 사용량 한도에 도달했습니다. 잠시 후 다시 시도해 주세요."
+        : /timeout|aborted|시간/i.test(message) || (error instanceof Error && error.name === "TimeoutError")
+          ? "Gemini 답변 또는 근거 재검토가 제한 시간 안에 완료되지 않았습니다."
+          : /재검토/.test(message) ? "AI 근거 재검토를 완료하지 못했습니다."
+            : /MAX_TOKENS|길어|중단/.test(message) ? "AI 생성이 중단되어 완전한 답변을 제공하지 않았습니다."
+              : "AI 답변 생성이 완료되지 않았습니다.";
       const validationFailed = error instanceof Error && /검증|원문에 없는|근거에 없는|근거 없는|형식 오류/.test(error.message);
       warnings.push(validationFailed
         ? `AI 답변의 근거 문구·수치 검증을 통과하지 못해 판단을 표시하지 않았습니다. ${error instanceof Error ? error.message : "검증 실패"}. 검색된 원문을 확인해 주세요.`
-        : "AI 답변 생성이 완료되지 않았습니다. 검색된 조문은 제공하지만 법규 적용 판단은 미완료입니다.");
+        : `${serviceReason} 검색된 조문은 제공하지만 법규 적용 판단은 미완료입니다.`);
       answer = buildUnavailableAnswer(evidence);
     }
     return NextResponse.json({
