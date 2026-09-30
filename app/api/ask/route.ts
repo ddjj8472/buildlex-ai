@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { fetchLocalOrdinance, fetchNationalLaw } from "@/lib/law-api";
 import { generateLegalAnswer } from "@/lib/gemini";
 import { buildSearchPlan, rankArticles } from "@/lib/search";
+import { buildUnavailableAnswer } from "@/lib/answer-quality";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -42,9 +43,18 @@ export async function POST(request: Request) {
       }, { status: 404 });
     }
 
-    const answer = await generateLegalAnswer(query, region, evidence, warnings);
+    let answer: string;
+    let answerGenerated = true;
+    try {
+      answer = await generateLegalAnswer(query, region, evidence, warnings);
+    } catch {
+      answerGenerated = false;
+      warnings.push("AI 답변 생성이 완료되지 않았습니다. 검색된 조문은 제공하지만 법규 적용 판단은 미완료입니다.");
+      answer = buildUnavailableAnswer(evidence);
+    }
     return NextResponse.json({
       answer,
+      answerGenerated,
       warnings,
       topics: plan.topics,
       sources: evidence.map((article) => ({

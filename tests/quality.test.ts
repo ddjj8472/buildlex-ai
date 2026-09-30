@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildSearchPlan, rankArticles } from "../lib/search.ts";
 import { buildSearchPlan as oldPlan, rankArticles as oldRank } from "./baseline-search.ts";
-import { cleanAnswer, validateAnswer } from "../lib/answer-quality.ts";
+import { buildUnavailableAnswer, cleanAnswer, validateAnswer } from "../lib/answer-quality.ts";
 import type { LawArticle } from "../lib/law-api.ts";
 
 // Synthetic retrieval fixtures: no legal thresholds or factual legal advice.
@@ -71,6 +71,15 @@ test("음식점 주차대수 질문은 주차장 자체의 용도변경과 구�
 
 test("마크다운 기호 제거 후 수치와 인용은 보존한다", () => {
   assert.equal(cleanAnswer("## 판단\n**50%** 적용 [근거 1]\n* 확인사항"), "판단\n50% 적용 [근거 1]\n• 확인사항");
+});
+
+test("AI 실패 시 판단이 미완료임을 밝히고 검색한 근거를 보존한다", () => {
+  const answer = buildUnavailableAnswer(corpus.slice(0, 2));
+  assert.ok(answer.includes("적용 여부를 판단하지 않았습니다"));
+  assert.ok(answer.includes(corpus[0].title));
+  assert.ok(answer.includes(corpus[1].title));
+  assert.equal(validateAnswer(answer, 2), answer);
+  assert.ok(!answer.includes("**"));
 });
 
 test("존재하지 않는 근거나 무인용 답변을 성공으로 제공하지 않는다", () => {

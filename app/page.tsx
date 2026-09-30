@@ -19,6 +19,7 @@ type Result = {
   sources: Source[];
   demoOc?: boolean;
   warnings?: string[];
+  answerGenerated?: boolean;
 };
 
 const EXAMPLES = [
@@ -115,7 +116,7 @@ export default function Home() {
 
           <div className="resultGrid">
             <article className="answerCard">
-              <div className="cardLabel"><span>AI</span> 근거 기반 답변</div>
+              <div className="cardLabel"><span>{result.answerGenerated === false ? "검색" : "AI"}</span> {result.answerGenerated === false ? "조문 검색 결과 · AI 검토 미완료" : "근거 기반 답변"}</div>
               {result.warnings?.length ? <div className="notice" role="status">{result.warnings.map(warning => <p key={warning}>{warning}</p>)}</div> : null}
               <div className="answerText">{cleanAnswer(result.answer).split(/(\[근거\s*\d+\])/g).map((part, index) => {
                 const citation = part.match(/^\[근거\s*(\d+)\]$/);
