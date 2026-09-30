@@ -14,6 +14,13 @@ export const CORE_LAWS = [
 
 export const LAW_TOPICS: LawTopic[] = [
   {
+    id: "housing",
+    label: "공동주택 행위허가·유지관리",
+    triggers: ["아파트", "공동주택", "단지", "입주자", "입주민", "행위허가", "행위신고"],
+    keywords: ["행위허가", "행위신고", "증설", "경미한 행위", "부대시설", "복리시설"],
+    laws: ["공동주택관리법", "공동주택관리법 시행령", "공동주택관리법 시행규칙", "집합건물의 소유 및 관리에 관한 법률", ...CORE_LAWS],
+  },
+  {
     id: "permit",
     label: "허가·신고·용도변경",
     triggers: ["허가", "신고", "용도변경", "대수선", "증축", "신축", "사용승인"],
@@ -63,6 +70,7 @@ export const LAW_TOPICS: LawTopic[] = [
 ];
 
 export const SCOPE_LABELS = [
+  "공동주택관리법 3단·별표",
   "건축법 3단",
   "국토계획법 3단",
   "주차장법 3단",

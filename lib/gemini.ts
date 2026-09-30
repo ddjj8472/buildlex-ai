@@ -10,7 +10,7 @@ function formatEvidence(articles: LawArticle[]): string {
   return articles.map((article, index) => [
     `[근거 ${index + 1}] ${article.lawName} ${article.title}`,
     `시행일: ${article.effectiveDate}`,
-    article.text.slice(0, 6500) + (article.text.length > 6500 ? "\n[이 조문은 일부 발췌입니다. 이후 내용과 단서·예외는 미확인입니다.]" : ""),
+    article.text.slice(0, 24000) + (article.text.length > 24000 ? "\n[이 근거는 일부 발췌입니다. 이후 내용과 단서·예외는 미확인입니다.]" : ""),
   ].join("\n")).join("\n\n---\n\n");
 }
 
@@ -25,11 +25,17 @@ export async function generateLegalAnswer(
   const model = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
-  const prompt = `당신은 대한민국 건축법규 검색 보조자입니다. 아래 검색된 현행 조문만 근거로 답하십시오.
+  const prompt = `대한민국 건축·공동주택 행정 질의에 답한다. 우선 질문의 행정행위와 적용 법률을 구분한 뒤 아래 현행 조문·별표로 조건별 답변을 작성한다. 자료가 불완전해도 확인된 원칙과 조건별 분기는 먼저 설명하고, 미확인 부분만 한정해서 밝힌다.
+
+[해석 순서]
+- 공동주택 시설 변경·유지관리의 행위허가와 건축법상 건축허가를 혼동하지 않는다. 공동주택 질문에는 공동주택관리법의 관련 조문·시행규칙상 경미한 행위·시행령 별표를 먼저 검토한다.
+- 일부 부품의 유지보수, 원상복구, 시설의 증설, 구조·규모 변경을 구분한다. 모든 복구를 증축·대수선으로 취급하지 않는다.
+- 조건이 부족하면 전면 판단 유보 대신 A인 경우/B인 경우의 기준을 설명한다. 법률 용어의 일반적인 설명은 사용해도 되지만 검색되지 않은 숫자·조문·허가 면제는 사실로 만들지 않는다.
+- 국가법령과 지자체별 판단을 구분한다. 동의 주체가 입주자, 입주자등, 구분소유자, 대표회의 중 누구인지 근거대로 쓴다.
 
 [엄격한 원칙]
 1. 검색 근거에 없는 조문 번호, 수치, 예외를 추측하지 마십시오.
-2. '현재 판단 / 적용 조건과 근거 / 부족한 정보 / 다음 확인사항' 순서로 한국어 존댓말로 작성하십시오. 첫 문장에서 질문에 직접 답하되 판단 불가라면 그 이유를 밝히십시오.
+2. '현재 판단 / 적용 조건과 근거 / 다음 확인사항' 순서로 한국어 존댓말로 작성하십시오. 첫 문장에서 질문에 직접 답하며, 정보가 부족하면 확인된 조건별 결론을 먼저 제공합니다. 전체 답변은 가급적 700자, 복합 질문은 1200자 이내로 작성합니다.
 3. 근거를 쓸 때 반드시 '[근거 n]'을 표시하십시오.
 4. 지역 조례, 용도지역, 건축물 용도·규모 등 정보가 부족하면 무엇을 더 확인해야 하는지 명시하십시오.
 5. 법률 자문이나 허가 가능성을 확정하지 말고, 관할 허가권자 확인이 필요하다고 알리십시오.
@@ -62,7 +68,7 @@ ${formatEvidence(evidence)}`;
     },
     body: JSON.stringify({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.15, maxOutputTokens: 1400 },
+      generationConfig: { temperature: 0.1, maxOutputTokens: 2600 },
     }),
   });
   const payload = await response.json() as GeminiResponse;

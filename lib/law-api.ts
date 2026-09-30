@@ -5,6 +5,8 @@ export type LawArticle = {
   effectiveDate: string;
   sourceUrl: string;
   sourceType: "국가법령" | "자치법규";
+  kind?: "article" | "appendix";
+  attachmentUrl?: string;
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -29,6 +31,25 @@ function textValue(value: unknown): string {
     return textValue(record.content ?? record["내용"] ?? "");
   }
   return "";
+}
+
+export function flattenAppendices(detail: JsonRecord, lawName: string, date: string, sourceUrl: string): LawArticle[] {
+  const units = asArray(asRecord(detail["별표"])["별표단위"] as JsonRecord | JsonRecord[] | undefined);
+  return units.flatMap(value => {
+    const item = asRecord(value);
+    if (!/별표/.test(textValue(item["별표구분"])) && textValue(item["별표구분"]) !== "1") return [];
+    const number = String(Number(textValue(item["별표번호"])) || textValue(item["별표번호"]));
+    const branch = textValue(item["별표가지번호"]);
+    const heading = textValue(item["별표제목"]);
+    const text = textValue(item["별표내용"]).replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").trim();
+    if (!text) return [];
+    const pdf = textValue(item["별표서식PDF파일링크"]);
+    let attachmentUrl: string | undefined;
+    if (pdf) {
+      try { const url = new URL(pdf, LAW_HOME); if (["law.go.kr", "www.law.go.kr"].includes(url.hostname) && ["http:", "https:"].includes(url.protocol)) { url.protocol = "https:"; attachmentUrl = url.toString(); } } catch { /* Keep revision source. */ }
+    }
+    return [{lawName, title: `별표 ${number}${Number(branch) ? `의${Number(branch)}` : ""} ${heading}`, text, effectiveDate: date, sourceUrl, sourceType: "국가법령" as const, kind: "appendix" as const, attachmentUrl}];
+  });
 }
 
 async function getJson(url: URL): Promise<JsonRecord> {
@@ -134,7 +155,8 @@ export async function fetchNationalLaw(lawName: string): Promise<LawArticle[]> {
   const detail = asRecord((await getJson(detailUrl))["법령"]);
   const articles = asArray(asRecord(detail["조문"])["조문단위"] as JsonRecord | JsonRecord[] | undefined);
   const sourceUrl = buildSourceUrl("law", mst, textValue(exact["법령상세링크"]));
-  return articles.map((article) => flattenNationalArticle(asRecord(article), lawName, date, sourceUrl)).filter(Boolean) as LawArticle[];
+  const main = articles.map((article) => flattenNationalArticle(asRecord(article), lawName, date, sourceUrl)).filter(Boolean) as LawArticle[];
+  return [...main, ...flattenAppendices(detail, lawName, date, sourceUrl)];
 }
 
 export async function fetchLocalOrdinance(region: string): Promise<LawArticle[]> {

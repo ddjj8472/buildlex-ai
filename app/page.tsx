@@ -73,7 +73,7 @@ export default function Home() {
       <section className="hero" id="top">
         <div className="eyebrow">ARCHITECTURE × REGULATION × AI</div>
         <h1>건축법규를<br /><span>근거부터</span> 찾습니다.</h1>
-        <p className="lead">질문을 분석해 관련 현행 조문을 먼저 검색하고,<br className="desktop" /> 검색된 근거 안에서만 AI가 답변합니다.</p>
+        <p className="lead">질문의 의도를 분석해 관련 현행 조문과 별표를 찾고,<br className="desktop" /> 확인된 기준과 조건별 절차를 설명합니다.</p>
 
         <form className="searchCard" onSubmit={submit}>
           <div className="fieldRow">
@@ -126,7 +126,7 @@ export default function Home() {
             </article>
 
             <aside className="sourceCard">
-              <div className="cardLabel"><span>{result.sources.length}</span> 확인한 조문</div>
+              <div className="cardLabel"><span>{result.sources.length}</span> 확인한 조문·별표</div>
               <ol>
                 {result.sources.map((source, index) => (
                   <li id={`source-${index + 1}`} key={`${source.lawName}-${source.article}-${index}`}>
