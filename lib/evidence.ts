@@ -4,7 +4,17 @@ import { rankArticles } from "./search.ts";
 const compact = (s: string) => s.replace(/\s|[ㆍ·]/g, "");
 export function selectEvidence(articles: LawArticle[], query: string, keywords: string[], cases: LawArticle[] = []): LawArticle[] {
   const ranked = rankArticles(articles, query, keywords, 10);
-  const selected = [...cases, ...ranked.slice(0, 6)];
+  // Explicit citations in the question and retrieved replies must not lose
+  // their slots to provisions that merely repeat popular keywords.
+  const citedContext = compact([query, ...cases.map(a => a.text)].join(" ").replace(/[「」]/g, ""));
+  const direct = articles.filter(a => {
+    const number = a.title.match(/^제\d+조(?:의\d+)?/)?.[0];
+    return number && citedContext.includes(compact(a.lawName) + number);
+  }).slice(0, 3);
+  const selected = [...cases, ...direct];
+  for (const article of ranked.slice(0, 6)) {
+    if (!selected.some(a => a.lawName === article.lawName && a.title === article.title)) selected.push(article);
+  }
   // Follow one hop of explicit citations within already fetched laws. The
   // referenced provision gets a slot even when its vocabulary differs.
   for (const article of ranked.slice(0, 3)) {

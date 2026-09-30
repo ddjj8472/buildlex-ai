@@ -46,6 +46,12 @@ test("조합원 자격의 직접 조문이 포괄적인 건축 절차보다 먼�
   const q = "도시정비법 다물건자 조합원 지위 시점";
   assert.equal(rankArticles([broad, direct], q, buildSearchPlan(q).keywords)[0], direct);
 });
+test("공식 회신이 명시한 지역 조례 조문을 근거 슬롯에 보존한다", () => {
+  const local = article("용인시 건축 조례", "제28조(조경면적)", "법정 조경면적 기준을 유지한다.");
+  const response = article("용인시 공개 민원 회답", "시설 변경", "용인시 건축 조례 제28조의 법정 면적을 유지해야 한다.");
+  const pool = [local, ...Array.from({length:12}, (_,i)=>article("주택건설기준 등에 관한 규정", `제${i+1}조(주차장)`, "주차장 변경 기준 동의"))];
+  assert.ok(selectEvidence(pool, "아파트 주차장 변경 동의", ["주차장", "동의"], [response]).includes(local));
+});
 test("시행규칙의 법·영 인용을 시행규칙 동번호 조문으로 잘못 연결하지 않는다", () => {
   const main = article("공동주택관리법 시행규칙", "제15조(행위허가)", "법 제35조 및 영 제35조에 따른 행위허가 기준입니다.");
   const law = article("공동주택관리법", "제35조(행위허가 기준)", "행위허가의 기준");
@@ -72,4 +78,6 @@ test("문구 번호로 원문을 선택하고 잘못된 포인터는 거부한�
   assert.ok(renderGroundedAnswer(raw(1), ev).includes("유사 회신"));
   assert.throws(() => renderGroundedAnswer(raw(20), ev));
   assert.throws(() => renderGroundedAnswer(raw(2), ev));
+  const short = [article("시행규칙", "제15조(행위허가 신청 등)", "가. 동의서")];
+  assert.ok(renderGroundedAnswer(JSON.stringify({claims:[{text:"동의서를 첨부합니다.",supports:[{source:1,unit:1}]}],missing:[],next:[]}), short).includes("[근거 1]"));
 });
