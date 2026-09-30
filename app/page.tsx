@@ -147,8 +147,8 @@ export default function Home() {
 
       <section className="scopeSection">
         <div>
-          <span className="kicker">MVP SCOPE</span>
-          <h2>발표에 필요한 범위만<br />명확하게 담았습니다.</h2>
+          <span className="kicker">SEARCH SCOPE</span>
+          <h2>검색 가능한<br />법규 범위</h2>
         </div>
         <div className="scopeGrid">
           {SCOPE_LABELS.map((label, index) => (
