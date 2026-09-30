@@ -8,6 +8,7 @@ type Source = {
   lawName: string;
   article: string;
   effectiveDate: string;
+  dateLabel?: string;
   url: string;
   sourceType: string;
   excerpt?: string;
@@ -131,7 +132,7 @@ export default function Home() {
                 {result.sources.map((source, index) => (
                   <li id={`source-${index + 1}`} key={`${source.lawName}-${source.article}-${index}`}>
                     <a href={source.url} target="_blank" rel="noreferrer">
-                      <small>{source.sourceType} · 시행 {formatDate(source.effectiveDate)}</small>
+                      <small>{source.sourceType} · {source.dateLabel || (source.sourceType === "공식 질의회답" ? "회신" : "시행")} {formatDate(source.effectiveDate)}</small>
                       <strong>{source.lawName}</strong>
                       <span>{source.article} <b>↗</b></span>
                     </a>

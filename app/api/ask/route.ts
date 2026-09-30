@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { fetchLocalOrdinance, fetchNationalLaw } from "@/lib/law-api";
 import { generateLegalAnswer } from "@/lib/gemini";
-import { buildSearchPlan, rankArticles } from "@/lib/search";
+import { buildSearchPlan } from "@/lib/search";
 import { buildUnavailableAnswer } from "@/lib/answer-quality";
+import { findOfficialCases } from "@/lib/official-cases";
+import { selectEvidence } from "@/lib/evidence";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -24,16 +26,23 @@ export async function POST(request: Request) {
     }
 
     const plan = buildSearchPlan(query);
+    const localKinds = ["건축 조례"];
+    if (plan.topics.includes("공동주택 공용시설·행위허가")) localKinds.push("주택 조례");
+    if (plan.topics.some(t => /용도지역|용적률/.test(t))) localKinds.push("도시계획 조례");
+    if (plan.topics.includes("부설주차장")) localKinds.push("주차장 설치 및 관리 조례");
     const [nationalResults, localResult] = await Promise.all([
       Promise.allSettled(plan.laws.map(fetchNationalLaw)),
-      Promise.allSettled(region ? [fetchLocalOrdinance(region)] : []),
+      Promise.allSettled(region ? localKinds.map(kind => fetchLocalOrdinance(region, kind)) : []),
     ]);
     const nationalArticles = nationalResults.flatMap((result) => result.status === "fulfilled" ? result.value : []);
-    const localArticles = localResult[0]?.status === "fulfilled" ? localResult[0].value : [];
+    const localArticles = localResult.flatMap(result => result.status === "fulfilled" ? result.value : []);
     const warnings = nationalResults.flatMap((result, index) => result.status === "rejected" || !result.value.length ? [`${plan.laws[index]} 조회 실패 또는 조문 없음`] : []);
-    if (region && !localArticles.length) warnings.push(`${region} 건축 조례를 확보하지 못했습니다. 지역 기준은 미확인입니다.`);
-    if (plan.topics.some(topic => /용적률|부설주차장/.test(topic))) warnings.push("도시계획·주차장 조례와 별표는 이번 검색 범위에 포함되지 않습니다. 지역별 수치는 별도 확인해야 합니다.");
-    const evidence = rankArticles([...nationalArticles, ...localArticles], query, plan.keywords, 8);
+    localResult.forEach((result, i) => {
+      if (result.status === "rejected" || !result.value.length) warnings.push(`${region} ${localKinds[i]}를 확보하지 못했습니다. 해당 지역 기준은 미확인입니다.`);
+    });
+    const cases = findOfficialCases(query, region);
+    if (cases.length) warnings.push("유사한 공식 회답 사례를 함께 확인했습니다. 과거 회신과 현재 법령을 구분하여 개별 대상지 조건을 검토해야 합니다.");
+    const evidence = selectEvidence([...nationalArticles, ...localArticles], query, plan.keywords, cases);
     if (evidence.some(article => /별표/.test(article.text))) warnings.push("검색 조문이 인용하는 별표 원문은 수집되지 않았습니다. 별표의 수치·예외는 미확인입니다.");
     if (evidence.some(article => article.text.length > 6500)) warnings.push("긴 조문 일부는 발췌하여 답변했습니다. 생략된 단서·예외는 원문 확인이 필요합니다.");
 
@@ -61,6 +70,7 @@ export async function POST(request: Request) {
         lawName: article.lawName,
         article: article.title,
         effectiveDate: article.effectiveDate,
+        dateLabel: article.dateLabel,
         url: article.sourceUrl,
         sourceType: article.sourceType,
         excerpt: article.text.slice(0, 700),

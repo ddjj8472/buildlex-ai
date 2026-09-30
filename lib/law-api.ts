@@ -3,8 +3,9 @@ export type LawArticle = {
   title: string;
   text: string;
   effectiveDate: string;
+  dateLabel?: string;
   sourceUrl: string;
-  sourceType: "국가법령" | "자치법규";
+  sourceType: "국가법령" | "자치법규" | "공식 질의회답";
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -137,11 +138,11 @@ export async function fetchNationalLaw(lawName: string): Promise<LawArticle[]> {
   return articles.map((article) => flattenNationalArticle(asRecord(article), lawName, date, sourceUrl)).filter(Boolean) as LawArticle[];
 }
 
-export async function fetchLocalOrdinance(region: string): Promise<LawArticle[]> {
+export async function fetchLocalOrdinance(region: string, kind = "건축 조례"): Promise<LawArticle[]> {
   const cleanRegion = region.replace(/[^가-힣\s]/g, "").trim().slice(0, 20);
   if (!cleanRegion) return [];
   const oc = process.env.LAW_API_OC || "test";
-  const expectedName = `${cleanRegion} 건축 조례`;
+  const expectedName = `${cleanRegion} ${kind}`;
   const searchUrl = new URL(`${API_ROOT}/lawSearch.do`);
   searchUrl.search = new URLSearchParams({ OC: oc, target: "ordin", type: "JSON", query: expectedName, display: "20" }).toString();
   const search = asRecord((await getJson(searchUrl))["OrdinSearch"]);

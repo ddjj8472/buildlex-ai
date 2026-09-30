@@ -48,12 +48,12 @@ export function buildSearchPlan(query: string): SearchPlan {
   const matched = LAW_TOPICS.filter((topic) =>
     topic.triggers.some((trigger) => normalized(expandedQuery).includes(normalized(trigger))),
   );
-  const selected = matched.length ? matched : [LAW_TOPICS[0], LAW_TOPICS[5]];
+  const selected = matched.length ? matched : LAW_TOPICS.filter(topic => ["permit", "site"].includes(topic.id));
 
   return {
     topics: selected.map((topic) => topic.label),
     laws: [...new Set([...selected.flatMap((topic) => topic.laws), ...CORE_LAWS])],
-    keywords: [...new Set([...tokenize(query), ...concepts(query).flat()])],
+    keywords: [...new Set([...tokenize(query), ...concepts(query).flat(), ...matched.filter(t => ["housing", "construction", "redevelopment"].includes(t.id)).flatMap(t => t.keywords)])],
   };
 }
 
@@ -77,6 +77,17 @@ export function rankArticles(
         const idf = Math.log(1 + unique.length / (1 + (frequencies.get(term) || 0)));
         return sum + idf * (title.includes(term) ? 12 : body.includes(term) ? 2 : 0);
       }, 0) + matchedGroups.length * 4;
+      if (/아파트|공동주택|입주민|입주자|주민공동시설/.test(query)
+        && /변경|주차|동의|철거|증축/.test(query)
+        && article.lawName.includes("공동주택관리") && /행위허가|행위신고|허가.*신고/.test(title)) score += 50;
+      if (/조합원|다물건자|다물권자/.test(query) && article.lawName === "도시 및 주거환경정비법" && title.includes("조합원의자격")) score += 60;
+      if (/시공|건설사업자/.test(query) && /주택법|건설산업기본법/.test(article.lawName)
+        && /시공|주택의건설|건설사업자/.test(title)) score += 35;
+      if (normalized(query).includes(normalized(article.lawName))) {
+        score += 15;
+        const requested = [...query.matchAll(/제\s*(\d+)\s*조(?:\s*의\s*(\d+))?/g)];
+        if (requested.some(m => title.startsWith(`제${m[1]}조${m[2] ? `의${m[2]}` : "("}`))) score += 100;
+      }
       // Changing a building's use and changing the use of its parking lot
       // are distinct intents despite sharing the same Korean keyword.
       if (/주차대수|주차.*몇\s*대|몇\s*대.*주차/.test(query)) {
