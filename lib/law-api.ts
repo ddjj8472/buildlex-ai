@@ -35,6 +35,7 @@ async function getJson(url: URL): Promise<JsonRecord> {
   const response = await fetch(url, {
     headers: { "User-Agent": "buildlex-ai/0.1 educational-demo" },
     next: { revalidate: 60 * 60 * 12 },
+    signal: AbortSignal.timeout(12000),
   });
   if (!response.ok) throw new Error(`법제처 API 오류 (${response.status})`);
   return response.json() as Promise<JsonRecord>;
@@ -132,7 +133,7 @@ export async function fetchLocalOrdinance(region: string): Promise<LawArticle[]>
   const search = asRecord((await getJson(searchUrl))["OrdinSearch"]);
   const candidates = asArray(search["law"] as JsonRecord | JsonRecord[] | undefined).map(asRecord);
   const exact = candidates.find((item) => textValue(item["자치법규명"]) === expectedName)
-    ?? candidates.find((item) => textValue(item["자치법규명"]).includes("건축 조례"));
+    ?? candidates.find((item) => textValue(item["자치법규명"]).replace(/\s+/g, "") === expectedName.replace(/\s+/g, ""));
   if (!exact) return [];
 
   const mst = textValue(exact["자치법규일련번호"]);

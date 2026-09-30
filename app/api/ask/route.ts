@@ -9,8 +9,12 @@ export const maxDuration = 60;
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { query?: string; region?: string };
-    const query = body.query?.trim() || "";
+    if (!body || typeof body.query !== "string" || (body.region !== undefined && typeof body.region !== "string")) {
+      return NextResponse.json({ error: "질문과 지역은 문자열로 입력해 주세요." }, { status: 400 });
+    }
+    const query = body.query.trim();
     const region = body.region?.trim() || "";
+    if (region.length > 20) return NextResponse.json({ error: "지역은 20자 이하로 입력해 주세요." }, { status: 400 });
     if (query.length < 4) {
       return NextResponse.json({ error: "질문을 4자 이상 입력해 주세요." }, { status: 400 });
     }
@@ -19,9 +23,15 @@ export async function POST(request: Request) {
     }
 
     const plan = buildSearchPlan(query);
-    const nationalResults = await Promise.allSettled(plan.laws.map(fetchNationalLaw));
+    const [nationalResults, localResult] = await Promise.all([
+      Promise.allSettled(plan.laws.map(fetchNationalLaw)),
+      Promise.allSettled(region ? [fetchLocalOrdinance(region)] : []),
+    ]);
     const nationalArticles = nationalResults.flatMap((result) => result.status === "fulfilled" ? result.value : []);
-    const localArticles = region ? await fetchLocalOrdinance(region).catch(() => []) : [];
+    const localArticles = localResult[0]?.status === "fulfilled" ? localResult[0].value : [];
+    const warnings = nationalResults.flatMap((result, index) => result.status === "rejected" || !result.value.length ? [`${plan.laws[index]} 조회 실패 또는 조문 없음`] : []);
+    if (region && !localArticles.length) warnings.push(`${region} 건축 조례를 확보하지 못했습니다. 지역 기준은 미확인입니다.`);
+    if (plan.topics.some(topic => /용적률|부설주차장/.test(topic))) warnings.push("도시계획·주차장 조례와 별표는 이번 검색 범위에 포함되지 않습니다. 지역별 수치는 별도 확인해야 합니다.");
     const evidence = rankArticles([...nationalArticles, ...localArticles], query, plan.keywords, 8);
 
     if (!evidence.length) {
@@ -30,9 +40,10 @@ export async function POST(request: Request) {
       }, { status: 404 });
     }
 
-    const answer = await generateLegalAnswer(query, region, evidence);
+    const answer = await generateLegalAnswer(query, region, evidence, warnings);
     return NextResponse.json({
       answer,
+      warnings,
       topics: plan.topics,
       sources: evidence.map((article) => ({
         lawName: article.lawName,
@@ -40,6 +51,7 @@ export async function POST(request: Request) {
         effectiveDate: article.effectiveDate,
         url: article.sourceUrl,
         sourceType: article.sourceType,
+        excerpt: article.text.slice(0, 700),
       })),
       demoOc: !process.env.LAW_API_OC || process.env.LAW_API_OC === "test",
     });

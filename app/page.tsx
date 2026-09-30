@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { SCOPE_LABELS } from "@/data/law-scope";
+import { cleanAnswer } from "@/lib/answer-quality";
 
 type Source = {
   lawName: string;
@@ -9,6 +10,7 @@ type Source = {
   effectiveDate: string;
   url: string;
   sourceType: string;
+  excerpt?: string;
 };
 
 type Result = {
@@ -16,6 +18,7 @@ type Result = {
   topics: string[];
   sources: Source[];
   demoOc?: boolean;
+  warnings?: string[];
 };
 
 const EXAMPLES = [
@@ -113,7 +116,11 @@ export default function Home() {
           <div className="resultGrid">
             <article className="answerCard">
               <div className="cardLabel"><span>AI</span> 근거 기반 답변</div>
-              <div className="answerText">{result.answer}</div>
+              {result.warnings?.length ? <div className="notice" role="status">{result.warnings.map(warning => <p key={warning}>{warning}</p>)}</div> : null}
+              <div className="answerText">{cleanAnswer(result.answer).split(/(\[근거\s*\d+\])/g).map((part, index) => {
+                const citation = part.match(/^\[근거\s*(\d+)\]$/);
+                return citation && Number(citation[1]) <= result.sources.length ? <a key={index} href={`#source-${citation[1]}`}>{part}</a> : part;
+              })}</div>
               <div className="disclaimer">교육용 검색 보조 결과입니다. 실제 인허가 판단은 대상지 조건과 최신 조례를 바탕으로 관할 허가권자에게 확인하세요.</div>
             </article>
 
@@ -121,12 +128,13 @@ export default function Home() {
               <div className="cardLabel"><span>{result.sources.length}</span> 확인한 조문</div>
               <ol>
                 {result.sources.map((source, index) => (
-                  <li key={`${source.lawName}-${source.article}-${index}`}>
+                  <li id={`source-${index + 1}`} key={`${source.lawName}-${source.article}-${index}`}>
                     <a href={source.url} target="_blank" rel="noreferrer">
                       <small>{source.sourceType} · 시행 {formatDate(source.effectiveDate)}</small>
                       <strong>{source.lawName}</strong>
                       <span>{source.article} <b>↗</b></span>
                     </a>
+                    {source.excerpt && <details><summary>근거 {index + 1} 조문 미리보기</summary><p style={{whiteSpace: "pre-wrap", fontSize: "0.875rem"}}>{source.excerpt}{source.excerpt.length >= 700 ? "… (전체 내용은 원문 확인)" : ""}</p></details>}
                   </li>
                 ))}
               </ol>

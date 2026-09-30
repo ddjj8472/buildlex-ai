@@ -12,33 +12,49 @@ export type SearchPlan = {
   keywords: string[];
 };
 
+const CONCEPTS = [
+  ["건폐율"], ["용적률"], ["일조", "일조권", "정북", "채광"],
+  ["대지 안의 공지", "대지안의공지", "이격", "인접 대지경계선"],
+  ["접도", "대지와 도로", "도로에", "도로폭"],
+  ["주차", "주차대수", "부설주차장"],
+  ["피난", "직통계단", "비상계단"], ["방화구획"],
+  ["용도변경", "용도 변경"], ["건축허가", "허가"], ["건축신고", "신고"],
+  ["조경", "대지의 조경"], ["내진", "구조안전", "구조계산"],
+];
+
+function normalized(text: string): string {
+  return text.normalize("NFKC").replace(/[ㆍ·]/g, " ").replace(/\s+/g, "").toLowerCase();
+}
+
+function concepts(query: string): string[][] {
+  return CONCEPTS.filter(group => group.some(term => normalized(query).includes(normalized(term))));
+}
+
 export function tokenize(text: string): string[] {
   return [...new Set(
     text
       .replace(/[^0-9A-Za-z가-힣㎡%·ㆍ]/g, " ")
       .split(/\s+/)
-      .map((token) => token.trim())
+      .map((token) => {
+        const stem = token.trim().replace(/(에서는|에서|으로|에게|까지|부터|은|는|을|를|과|와|의|이|가)$/, "");
+        return stem.length >= 2 ? stem : token.trim();
+      })
       .filter((token) => token.length >= 2 && !STOP_WORDS.has(token)),
   )];
 }
 
 export function buildSearchPlan(query: string): SearchPlan {
+  const expandedQuery = `${query} ${concepts(query).flat().join(" ")}`;
   const matched = LAW_TOPICS.filter((topic) =>
-    topic.triggers.some((trigger) => query.includes(trigger)),
+    topic.triggers.some((trigger) => normalized(expandedQuery).includes(normalized(trigger))),
   );
   const selected = matched.length ? matched : [LAW_TOPICS[0], LAW_TOPICS[5]];
 
   return {
     topics: selected.map((topic) => topic.label),
-    laws: [...new Set([...CORE_LAWS, ...selected.flatMap((topic) => topic.laws)])].slice(0, 8),
-    keywords: [...new Set([...tokenize(query), ...selected.flatMap((topic) => topic.keywords)])],
+    laws: [...new Set([...selected.flatMap((topic) => topic.laws), ...CORE_LAWS])],
+    keywords: [...new Set([...tokenize(query), ...concepts(query).flat()])],
   };
-}
-
-function occurrenceScore(text: string, keyword: string): number {
-  if (!text.includes(keyword)) return 0;
-  if (text.startsWith(keyword) || text.includes(`(${keyword})`)) return 7;
-  return keyword.length >= 4 ? 5 : 3;
 }
 
 export function rankArticles(
@@ -48,13 +64,19 @@ export function rankArticles(
   limit = 8,
 ): LawArticle[] {
   const queryTokens = tokenize(query);
-  return articles
+  const groups = concepts(query);
+  const terms = [...new Set([...queryTokens, ...keywords].map(normalized))].filter(Boolean);
+  const unique = [...new Map(articles.map(article => [`${article.lawName}|${article.title}`, article])).values()];
+  const frequencies = new Map(terms.map(term => [term, unique.filter(a => normalized(a.title + a.text).includes(term)).length]));
+  return unique
     .map((article) => {
-      const haystack = `${article.title} ${article.text}`.replace(/\s+/g, " ");
-      const score = queryTokens.reduce(
-        (sum, token) => sum + occurrenceScore(haystack, token) * 2,
-        0,
-      ) + keywords.reduce((sum, keyword) => sum + occurrenceScore(haystack, keyword), 0);
+      const title = normalized(article.title);
+      const body = normalized(article.text);
+      const matchedGroups = groups.filter(group => group.some(term => (title + body).includes(normalized(term))));
+      const score = groups.length && !matchedGroups.length ? 0 : terms.reduce((sum, term) => {
+        const idf = Math.log(1 + unique.length / (1 + (frequencies.get(term) || 0)));
+        return sum + idf * (title.includes(term) ? 12 : body.includes(term) ? 2 : 0);
+      }, 0) + matchedGroups.length * 4;
       return { article, score };
     })
     .filter(({ score }) => score > 0)
