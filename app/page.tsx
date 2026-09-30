@@ -140,7 +140,7 @@ export default function Home() {
                   </li>
                 ))}
               </ol>
-              {result.demoOc && <p className="demoBadge">현재 법제처 발표용 OC를 사용 중입니다.</p>}
+              {result.demoOc && <p className="demoBadge">현재 법제처 시험용 OC를 사용 중입니다.</p>}
             </aside>
           </div>
         </section>

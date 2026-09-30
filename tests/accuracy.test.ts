@@ -65,3 +65,11 @@ test("원문에 없는 인용과 수치를 거부한다", () => {
   assert.throws(() => renderGroundedAnswer(response("동의 필요", ev[0].text, 8), ev));
   assert.ok(renderGroundedAnswer(response("3분의 2 이상 동의와 신고가 필요합니다.", ev[0].text), ev).includes("[근거 1]"));
 });
+test("문구 번호로 원문을 선택하고 잘못된 포인터는 거부한다", () => {
+  const ev = [article("용인시 공개 민원 회답", "시설 변경", "전체 입주자의 3분의 2 이상 동의를 받아 행위신고를 진행하도록 안내했다.\n법정 조경면적을 유지해야 한다.")];
+  ev[0].sourceType = "공식 질의회답";
+  const raw = (unit: number) => JSON.stringify({claims:[{text:"3분의 2 이상 동의와 신고가 필요합니다.",supports:[{source:1,unit}]}],missing:[],next:[]});
+  assert.ok(renderGroundedAnswer(raw(1), ev).includes("유사 회신"));
+  assert.throws(() => renderGroundedAnswer(raw(20), ev));
+  assert.throws(() => renderGroundedAnswer(raw(2), ev));
+});
