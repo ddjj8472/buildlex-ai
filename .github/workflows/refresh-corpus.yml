@@ -1,0 +1,40 @@
+name: Refresh law corpus
+
+on:
+  schedule:
+    - cron: "17 18 * * 0"   # 매주 월요일 03:17 KST
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Fetch legalize-kr sources
+        run: bash scripts/fetch-sources.sh "$RUNNER_TEMP/sources"
+      - name: Build corpus
+        env:
+          LEGALIZE_DIR: ${{ runner.temp }}/sources/legalize-kr
+          ORDINANCE_DIR: ${{ runner.temp }}/sources/ordinance-kr
+          LAW_API_OC: ${{ secrets.LAW_API_OC }}
+        run: npm run corpus
+      - name: Build embeddings (optional)
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        run: npm run embed
+      - run: npm test
+      - name: Commit if changed
+        run: |
+          git config user.name "corpus-bot"
+          git config user.email "corpus-bot@users.noreply.github.com"
+          git add data/index
+          git diff --cached --quiet || git commit -m "chore: refresh law corpus $(date +%F)"
+          git push

@@ -1,0 +1,10 @@
+node_modules
+.next
+.env*.local
+.env
+!.env.example
+data/embed-cache.jsonl
+next-env.d.ts
+*.tsbuildinfo
+.vercel
+scripts/_*.mts
