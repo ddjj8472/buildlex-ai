@@ -4,7 +4,7 @@ import path from "node:path";
 import { ruleAnalysis } from "./analyze-rules.ts";
 import { findChunk, loadNational, resolveRegion } from "./corpus.ts";
 import { fetchAppendix, lawApiEnabled, searchInterpretations } from "./law-api.ts";
-import { FAST_MODEL, generateJSON, hasLLM, isMock, streamText } from "./llm.ts";
+import { FALLBACK_MODELS, FAST_MODEL, MODEL, generateJSON, hasLLM, isMock, streamText } from "./llm.ts";
 import { answerPrompt, analysisPrompt, evaluationPrompt, rerankPrompt, type Note, type Turn } from "./prompts.ts";
 import { hybridSearch, type Reranker } from "./search.ts";
 import { lawKeyOf, formatDate } from "./text.ts";
@@ -33,6 +33,18 @@ function loadNotes() {
 
 export function matchNotes(text: string, evidenceIds: string[]): Note[] {
   return loadNotes().filter(n => new RegExp(n.tags).test(text) || n.refs.some(r => evidenceIds.includes(r))).slice(0, 3);
+}
+
+/** 법령해석례: search with the leading legal term, keep items whose title shares the query's terms. */
+async function relevantInterpretations(a: QueryAnalysis): Promise<Interpretation[]> {
+  const terms = [...new Set([...a.legalTerms, ...a.standalone.split(/\s+/)])].map(t => t.replace(/\s+/g, "")).filter(t => t.length >= 2).slice(0, 14);
+  const key = a.legalTerms[0] || a.standalone.slice(0, 20);
+  const list = await searchInterpretations(key, 8);
+  const scored = list
+    .map(x => ({ x, s: terms.filter(t => x.title.replace(/\s+/g, "").includes(t)).length + terms.filter(t => (x.question || "").replace(/\s+/g, "").includes(t)).length * 0.5 }))
+    .filter(v => v.s >= 1.5)
+    .sort((p, q) => q.s - p.s);
+  return scored.slice(0, 3).map(v => v.x);
 }
 
 async function stage<T>(emit: Emit, id: StageId, fn: () => Promise<T>, detail?: (r: T) => string): Promise<T> {
@@ -94,12 +106,12 @@ export function toView(e: Evidence, region?: string): EvidenceView {
   };
 }
 
-function extractiveAnswer(evidence: Evidence[], analysis: QueryAnalysis): string {
+function extractiveAnswer(evidence: Evidence[], analysis: QueryAnalysis, reason = "AI 답변 생성이 설정되지 않아(GEMINI_API_KEY 없음) 검색된 관련 조문만 제시합니다. 아래 근거 조문의 원문을 확인해 주십시오."): string {
   const top = evidence.slice(0, 6);
   const lines = top.map(e => `- ${e.chunk.lawName} ${e.chunk.articleNo}${e.chunk.heading ? `(${e.chunk.heading})` : ""}: ${e.chunk.text.replace(/\s+/g, " ").slice(0, 160)}… [${e.n}]`);
   return [
     "## 결론",
-    "AI 답변 생성이 설정되지 않아(GEMINI_API_KEY 없음) 검색된 관련 조문만 제시합니다. 아래 근거 조문의 원문을 확인해 주십시오.",
+    reason,
     "## 근거 법령",
     ...lines,
     "## 추가 확인 사항",
@@ -144,7 +156,7 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
   const retrieve = async (a: QueryAnalysis) => {
     const [{ evidence, debug }, interp] = await Promise.all([
       hybridSearch(a, { region: effRegion, rerank: hasLLM() && !isMock() ? llmReranker(input.signal) : undefined }),
-      lawApiEnabled() ? searchInterpretations(a.legalTerms.slice(0, 2).join(" ") || a.standalone.slice(0, 30)).catch(() => []) : Promise.resolve([]),
+      lawApiEnabled() ? relevantInterpretations(a).catch(() => []) : Promise.resolve([]),
     ]);
     interpretations = interp;
     if (debug.dense === "unavailable") warnings.push("의미 검색(임베딩) 색인이 없어 키워드·법률용어 확장 검색만 사용했습니다.");
@@ -187,7 +199,28 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
       emit({ type: "delta", text: answer });
     } else {
       const prompt = answerPrompt({ query: input.query, analysis, region: effRegion?.label || "", evidence, interpretations, notes, warnings, history: input.history || [] });
-      for await (const d of streamText(prompt, { signal: input.signal })) { answer += d; emit({ type: "delta", text: d }); }
+      // Retry transient overload (429/503) with backoff, then fall back to other models,
+      // and finally to an extractive answer so the retrieved evidence is never lost.
+      const models = [...new Set([MODEL, ...FALLBACK_MODELS])];
+      let lastError = "";
+      for (const [i, model] of models.flatMap(m => [m, m]).entries()) {
+        if (i > 0) await new Promise(r => setTimeout(r, 1200 * i));
+        try {
+          if (answer) { emit({ type: "reset" }); answer = ""; }
+          for await (const d of streamText(prompt, { model, signal: input.signal })) { answer += d; emit({ type: "delta", text: d }); }
+          if (answer.trim()) {
+            if (model !== MODEL) emit({ type: "warning", message: `기본 모델이 혼잡해 ${model} 모델로 답변했습니다.` });
+            return answer;
+          }
+        } catch (e) {
+          lastError = e instanceof Error ? e.message : String(e);
+          if (input.signal?.aborted || !/\b(404|429|500|502|503|504)\b|NOT_FOUND|UNAVAILABLE|overloaded|high demand|RESOURCE_EXHAUSTED|fetch failed|timeout/i.test(lastError)) break;
+        }
+      }
+      if (answer) emit({ type: "reset" });
+      answer = extractiveAnswer(evidence, analysis, `AI 모델이 일시적으로 응답하지 않아(${/429|RESOURCE_EXHAUSTED/.test(lastError) ? "이용량 제한" : "서버 혼잡"}) 검색된 근거 조문만 먼저 제시합니다. 잠시 후 다시 질문해 주세요.`);
+      emit({ type: "delta", text: answer });
+      emit({ type: "warning", message: "AI 답변 생성에 실패해 근거 조문 목록으로 대신했습니다." });
     }
     return answer;
   };

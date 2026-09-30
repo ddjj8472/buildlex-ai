@@ -3,6 +3,8 @@
 
 export const MODEL = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
 export const FAST_MODEL = process.env.GEMINI_FAST_MODEL || MODEL;
+/** Tried in order when the main model is overloaded (comma-separated env). */
+export const FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS || "gemini-2.5-flash,gemini-2.5-flash-lite").split(",").map(s => s.trim()).filter(Boolean);
 const API = (process.env.GEMINI_API_BASE || "https://generativelanguage.googleapis.com/v1beta") + "/models";
 
 export const isMock = () => process.env.MOCK_LLM === "1";
@@ -16,6 +18,17 @@ function headers() {
 }
 
 export async function generateJSON<T>(prompt: string, opts: { model?: string; timeoutMs?: number; maxTokens?: number; signal?: AbortSignal } = {}): Promise<T> {
+  try {
+    return await generateJSONOnce<T>(prompt, opts);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (opts.signal?.aborted || !/429|500|502|503|504|UNAVAILABLE|high demand|RESOURCE_EXHAUSTED/i.test(msg)) throw e;
+    await new Promise(r => setTimeout(r, 900));
+    return generateJSONOnce<T>(prompt, { ...opts, model: FALLBACK_MODELS[0] || opts.model });
+  }
+}
+
+async function generateJSONOnce<T>(prompt: string, opts: { model?: string; timeoutMs?: number; maxTokens?: number; signal?: AbortSignal } = {}): Promise<T> {
   const res = await fetch(`${API}/${encodeURIComponent(opts.model || FAST_MODEL)}:generateContent`, {
     method: "POST",
     headers: headers(),
