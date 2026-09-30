@@ -66,7 +66,7 @@ async function analyze(input: AskInput): Promise<QueryAnalysis> {
   const national = loadNational();
   const names = [...new Set(national.corpus.laws.map(l => l.lawName))];
   try {
-    const raw = await generateJSON<Partial<QueryAnalysis>>(analysisPrompt(input.query, input.history || [], input.facts || {}, names), { timeoutMs: 9000, signal: input.signal });
+    const raw = await generateJSON<Partial<QueryAnalysis>>(analysisPrompt(input.query, input.history || [], input.facts || {}, names), { timeoutMs: 12000, signal: input.signal });
     const validLaws = (raw.laws || []).filter(n => typeof n === "string" && national.laws.has(lawKeyOf(n)));
     const cleanFacts = Object.fromEntries(Object.entries(raw.facts || {}).filter(([, v]) => typeof v === "string" && v.trim())) as SiteFacts;
     return {
@@ -80,18 +80,23 @@ async function analyze(input: AskInput): Promise<QueryAnalysis> {
       offTopic: raw.offTopic === true,
       source: "llm",
     };
-  } catch {
-    return base;
+  } catch (e) {
+    return { ...base, note: (e instanceof Error ? e.message : String(e)).slice(0, 120) };
   }
 }
 
-const llmReranker = (signal?: AbortSignal): Reranker => async (query, candidates) => {
+const llmReranker = (signal?: AbortSignal, onError?: (m: string) => void): Reranker => async (query, candidates) => {
+  try { return await rerankOnce(query, candidates, signal); }
+  catch (e) { onError?.((e instanceof Error ? e.message : String(e)).slice(0, 120)); return null; }
+};
+
+async function rerankOnce(query: string, candidates: Parameters<Reranker>[1], signal?: AbortSignal) {
   const items = candidates.map(c => ({ id: c.id, label: `${c.lawName} ${c.articleNo}(${c.heading})`, text: c.text.slice(0, 380).replace(/\s+/g, " ") }));
-  const res = await generateJSON<{ scores: Record<string, number> }>(rerankPrompt(query, items), { model: FAST_MODEL, timeoutMs: 9000, maxTokens: 1200, signal });
+  const res = await generateJSON<{ scores: Record<string, number> }>(rerankPrompt(query, items), { model: FAST_MODEL, timeoutMs: 12000, signal });
   const m = new Map<string, number>();
   for (const [id, s] of Object.entries(res.scores || {})) if (typeof s === "number") m.set(id, Math.max(0, Math.min(3, s)));
   return m;
-};
+}
 
 export function toView(e: Evidence, region?: string): EvidenceView {
   const c = e.chunk;
@@ -135,6 +140,8 @@ function* mockAnswer(evidence: Evidence[], analysis: QueryAnalysis): Generator<s
 }
 
 export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
+  const startedAt = Date.now();
+  const elapsed = () => Date.now() - startedAt;
   const evalMode = input.evalMode || "none";
   const region = resolveRegion(input.facts?.지역 || input.region);
 
@@ -143,6 +150,7 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
   const effRegion = region || resolveRegion(analysis.facts.지역);
   if (effRegion) analysis.facts.지역 = effRegion.label;
   emit({ type: "analysis", analysis });
+  if (analysis.note) emit({ type: "warning", message: `AI 질의 분석 대신 규칙 분석을 사용했습니다: ${analysis.note}` });
   if (analysis.offTopic) {
     for (const s of ["건축 행정 및 법령과 관련된 질문에 답변할 수 있습니다. ", "건축허가, 용도변경, 건폐율, 주차, 피난 기준처럼 구체적으로 질문해 주세요."]) emit({ type: "delta", text: s });
     for (const id of ["retrieve", "expand", "answer", "verify", "evaluate"] as StageId[]) emit({ type: "stage", id, status: "skipped" });
@@ -155,7 +163,7 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
 
   const retrieve = async (a: QueryAnalysis) => {
     const [{ evidence, debug }, interp] = await Promise.all([
-      hybridSearch(a, { region: effRegion, rerank: hasLLM() && !isMock() ? llmReranker(input.signal) : undefined }),
+      hybridSearch(a, { region: effRegion, rerank: hasLLM() && !isMock() ? llmReranker(input.signal, m => warnings.push(`AI 재순위 생략: ${m}`)) : undefined }),
       lawApiEnabled() ? relevantInterpretations(a).catch(() => []) : Promise.resolve([]),
     ]);
     interpretations = interp;
@@ -204,7 +212,7 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
       const models = [...new Set([MODEL, ...FALLBACK_MODELS])];
       let lastError = "";
       for (const [i, model] of models.flatMap(m => [m, m]).entries()) {
-        if (i > 0) await new Promise(r => setTimeout(r, 1200 * i));
+        if (i > 0) await new Promise(r => setTimeout(r, 600 * i));
         try {
           if (answer) { emit({ type: "reset" }); answer = ""; }
           for await (const d of streamText(prompt, { model, signal: input.signal })) { answer += d; emit({ type: "delta", text: d }); }
@@ -233,15 +241,15 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
   emit({ type: "verify", ok: check.ok, issues: check.issues });
 
   // 6. 품질 평가 / 자동 재검색
-  if (evalMode === "none" || !hasLLM()) {
-    emit({ type: "stage", id: "evaluate", status: "skipped", detail: evalMode === "none" ? "평가 없음 모드" : "AI 키 없음" });
-  } else {
+  if (evalMode === "none" || !hasLLM() || elapsed() > 42000) {
+    emit({ type: "stage", id: "evaluate", status: "skipped", detail: evalMode === "none" ? "평가 없음 모드" : !hasLLM() ? "AI 키 없음" : "응답 시간 제한으로 생략" });
+  } else try {
     const judge = async () => isMock()
       ? { score: 82, verdict: "모의 평가", issues: [], retryQueries: [] as string[] }
-      : await generateJSON<{ score: number; verdict: string; issues: string[]; retryQueries: string[] }>(evaluationPrompt(input.query, answer, evidence), { timeoutMs: 12000, signal: input.signal });
+      : await generateJSON<{ score: number; verdict: string; issues: string[]; retryQueries: string[] }>(evaluationPrompt(input.query, answer, evidence), { timeoutMs: Math.max(5000, Math.min(15000, 52000 - elapsed())), signal: input.signal });
     let ev = await stage(emit, "evaluate", judge, r => `${r.score}점`);
     let retried = false;
-    if (evalMode === "auto" && (ev.score < 70 || !check.ok) && (ev.retryQueries?.length || !check.ok)) {
+    if (evalMode === "auto" && elapsed() < 26000 && (ev.score < 70 || !check.ok) && (ev.retryQueries?.length || !check.ok)) {
       retried = true;
       emit({ type: "warning", message: `품질 점수 ${ev.score}점 — 추가 검색 후 답변을 다시 작성합니다.` });
       const a2: QueryAnalysis = { ...analysis, subQueries: [...(ev.retryQueries || []), ...analysis.subQueries].slice(0, 3) };
@@ -256,6 +264,8 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
       ev = await stage(emit, "evaluate", judge, r => `재평가 ${r.score}점`);
     }
     emit({ type: "evaluation", score: ev.score, verdict: ev.verdict, notes: ev.issues || [], retried });
+  } catch {
+    // Evaluation is advisory: a failure here must not discard the answer.
   }
   void debug;
   emit({ type: "done", answer, llm: hasLLM() });

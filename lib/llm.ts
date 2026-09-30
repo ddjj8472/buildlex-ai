@@ -35,13 +35,25 @@ async function generateJSONOnce<T>(prompt: string, opts: { model?: string; timeo
     signal: anySignal(opts.signal, AbortSignal.timeout(opts.timeoutMs ?? 12000)),
     body: JSON.stringify({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0, responseMimeType: "application/json", maxOutputTokens: opts.maxTokens ?? 1500 },
+      generationConfig: {
+        temperature: 0, responseMimeType: "application/json", maxOutputTokens: opts.maxTokens ?? 4096,
+        // Optional: cap "thinking" for structured calls (e.g. GEMINI_JSON_THINKING_BUDGET=0 on 2.5 models).
+        ...(process.env.GEMINI_JSON_THINKING_BUDGET ? { thinkingConfig: { thinkingBudget: Number(process.env.GEMINI_JSON_THINKING_BUDGET) } } : {}),
+      },
     }),
   });
   const data = await res.json() as GeminiResponse;
-  if (!res.ok) throw new Error(data.error?.message || `Gemini ${res.status}`);
-  const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
-  return JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, "")) as T;
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${data.error?.message || ""}`.slice(0, 200));
+  const cand = data.candidates?.[0];
+  const text = cand?.content?.parts?.map(p => p.text || "").join("") || "";
+  if (!text.trim()) throw new Error(`빈 응답(${cand?.finishReason || "unknown"})`);
+  const cleaned = text.replace(/^```(?:json)?\s*|\s*```$/g, "");
+  try { return JSON.parse(cleaned) as T; }
+  catch {
+    const m = cleaned.match(/\{[\s\S]*\}/);
+    if (m) return JSON.parse(m[0]) as T;
+    throw new Error(`JSON 파싱 실패(${cand?.finishReason || ""})`);
+  }
 }
 
 export async function* streamText(prompt: string, opts: { model?: string; timeoutMs?: number; maxTokens?: number; signal?: AbortSignal } = {}): AsyncGenerator<string> {

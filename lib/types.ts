@@ -87,6 +87,8 @@ export type QueryAnalysis = {
   missing: string[];
   offTopic: boolean;
   source: "llm" | "rules";
+  /** Why the LLM analyzer fell back to rules, if it did. */
+  note?: string;
 };
 
 export type Evidence = {
