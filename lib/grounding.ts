@@ -9,19 +9,19 @@ export function renderGroundedAnswer(raw: string, evidence: LawArticle[]): strin
   const data = JSON.parse(raw) as GroundedResult;
   if (!Array.isArray(data.claims) || !data.claims.length || data.claims.length > 8
     || !Array.isArray(data.missing) || !Array.isArray(data.next)) throw new Error("답변 구조 검증 실패");
-  const claims = data.claims.map(claim => {
+  const claims = data.claims.map((claim, index) => {
     if (typeof claim.text !== "string" || !claim.text.trim() || !Array.isArray(claim.supports) || !claim.supports.length) throw new Error("근거 없는 판단");
     for (const support of claim.supports) {
       const article = evidence[support.source - 1];
       if (!Number.isInteger(support.source) || !article || typeof support.quote !== "string"
-        || compact(support.quote).length < 12 || !compact(article.text.slice(0, 6500)).includes(compact(support.quote))) throw new Error("원문에 없는 근거 문구");
+        || compact(support.quote).length < 12 || !compact(article.text.slice(0, 6500)).includes(compact(support.quote))) throw new Error(`원문에 없는 근거 문구 또는 인용 길이 부족 (판단 ${index+1}, 근거 ${support.source})`);
     }
     // Catch invented numerical thresholds. This is a limited check, not an
     // entailment proof: the prompt must still distinguish principle and scope.
     const quoted = claim.supports.map(s => s.quote + " " + evidence[s.source - 1].title).join(" ");
     const numbers = Array.from(claim.text.matchAll(/\d+(?:\.\d+)?/g), m => m[0]);
     const quotedNumbers = Array.from(quoted.matchAll(/\d+(?:\.\d+)?/g), m => m[0]);
-    if (numbers.some(n => !quotedNumbers.includes(n))) throw new Error("근거에 없는 수치");
+    if (numbers.some(n => !quotedNumbers.includes(n))) throw new Error(`근거에 없는 수치 (판단 ${index+1}: ${numbers.filter(n => !quotedNumbers.includes(n)).join(", ")})`);
     return cleanAnswer(claim.text) + " " + [...new Set(claim.supports.map(s => `[근거 ${s.source}]`))].join(" ");
   });
   const items = (value: unknown[]) => value.slice(0, 3).map((s, i) => {

@@ -83,7 +83,7 @@ export function rankArticles(
       }, 0) + matchedGroups.length * 4;
       if (/아파트|공동주택|입주민|입주자|주민공동시설/.test(query)
         && /변경|주차|동의|철거|증축/.test(query)
-        && article.lawName.includes("공동주택관리") && /행위허가|행위신고|허가.*신고/.test(title)) score += 50;
+        && article.lawName.includes("공동주택관리") && /행위허가|행위신고|허가.*신고/.test(title)) score += 160;
       if (/조합원|다물건자|다물권자/.test(query) && article.lawName === "도시 및 주거환경정비법" && title.includes("조합원의자격")) score += 60;
       if (/시공|건설사업자/.test(query) && /주택법|건설산업기본법/.test(article.lawName)
         && /시공|주택의건설|건설사업자/.test(title)) score += 35;

@@ -82,6 +82,9 @@ ${formatEvidence(evidence)}`;
   }
   // A second bounded pass reviews applicability, not merely citation syntax.
   // Keep both passes on the configured model; no paid model or key is required.
+  let validationFeedback = "잠정 JSON의 문구·수치 형식 검증은 통과했습니다. 의미상 적용을 별도로 검토하십시오.";
+  try { renderGroundedAnswer(answer, evidence); }
+  catch (error) { validationFeedback = `잠정 JSON 검증 실패: ${error instanceof Error ? error.message : "형식 오류"}. 해당 항목을 원문에 맞게 수정하십시오.`; }
   const review = await fetch(endpoint, {
     method: "POST", signal: AbortSignal.timeout(12000),
     headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
@@ -92,6 +95,7 @@ ${formatEvidence(evidence)}`;
 조회 제한: ${warnings.join("\n")}
 근거: ${formatEvidence(evidence)}
 잠정 답변: ${answer}
+서버 검증: ${validationFeedback}
 검토 원칙:
 1. 각 판단이 인용한 문구에서 실제로 도출되는지, 질문의 시설·행위·지역·조건에 적용되는지 확인하십시오. 원문에 해당 단어가 있다는 것만으로 판단을 지지한다고 보지 마십시오.
 2. 대지의 도로 접촉 길이 규정을 내부 통로 전체 폭으로 확대하지 마십시오. 아파트 공용시설의 변경을 별도 도시계획시설 변경으로 추측하지 마십시오.
