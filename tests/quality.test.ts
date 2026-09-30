@@ -60,6 +60,15 @@ test("본문 중복으로 근거 슬롯을 낭비하지 않는다", () => {
   assert.equal(result.length, 1);
 });
 
+test("음식점 주차대수 질문은 주차장 자체의 용도변경과 구분한다", () => {
+  const articles = [
+    {...corpus[6], title: "제16조(부설주차장의 용도변경 신청 등)", text: "부설주차장 용도변경 신청"},
+    {...corpus[6], title: "제6조(부설주차장의 설치기준)", text: "시설물의 용도를 변경하는 경우 주차대수 산정"},
+  ];
+  const query = "음식점으로 용도변경할 때 주차대수는 어떻게 확인하나요?";
+  assert.equal(rankArticles(articles, query, buildSearchPlan(query).keywords, 1)[0].title, articles[1].title);
+});
+
 test("마크다운 기호 제거 후 수치와 인용은 보존한다", () => {
   assert.equal(cleanAnswer("## 판단\n**50%** 적용 [근거 1]\n* 확인사항"), "판단\n50% 적용 [근거 1]\n• 확인사항");
 });

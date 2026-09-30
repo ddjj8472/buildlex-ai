@@ -73,10 +73,16 @@ export function rankArticles(
       const title = normalized(article.title);
       const body = normalized(article.text);
       const matchedGroups = groups.filter(group => group.some(term => (title + body).includes(normalized(term))));
-      const score = groups.length && !matchedGroups.length ? 0 : terms.reduce((sum, term) => {
+      let score = groups.length && !matchedGroups.length ? 0 : terms.reduce((sum, term) => {
         const idf = Math.log(1 + unique.length / (1 + (frequencies.get(term) || 0)));
         return sum + idf * (title.includes(term) ? 12 : body.includes(term) ? 2 : 0);
       }, 0) + matchedGroups.length * 4;
+      // Changing a building's use and changing the use of its parking lot
+      // are distinct intents despite sharing the same Korean keyword.
+      if (/주차대수|주차.*몇\s*대|몇\s*대.*주차/.test(query)) {
+        if (/부설주차장.*설치기준/.test(title)) score += 25;
+        if (/부설주차장.*용도변경/.test(title) && !/주차장(?:을|의).*용도\s*변경/.test(query)) score *= 0.25;
+      }
       return { article, score };
     })
     .filter(({ score }) => score > 0)
