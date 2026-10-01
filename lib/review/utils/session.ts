@@ -24,12 +24,15 @@ export function plannedGroups(manifest: SheetManifest, scope: "full" | "administ
 
 const RANK: Record<Confidence, number> = { HIGH: 3, MEDIUM: 2, LOW: 1 };
 
-/** Merge values from all groups: user edits win, then higher confidence, then earlier group. */
+/** Exact characters from the text layer beat image readings unless flagged LOW. */
+const score = (v: FieldValue) => RANK[v.confidence] + (v.source === "text" && v.confidence !== "LOW" ? 3 : 0);
+
+/** Merge values from all groups: user edits win, then text layer, then higher confidence, then earlier group. */
 export function mergeValues(files: SheetFindingsFile[], user: ProjectValues = {}): ProjectValues {
   const out: ProjectValues = {};
   for (const f of files) for (const [k, v] of Object.entries(f.values) as [FieldKey, FieldValue][]) {
     const cur = out[k];
-    if (!cur || RANK[v.confidence] > RANK[cur.confidence]) out[k] = v;
+    if (!cur || score(v) > score(cur)) out[k] = v;
   }
   for (const [k, v] of Object.entries(user) as [FieldKey, FieldValue][]) if (v && v.value !== "" && v.value !== undefined) out[k] = { ...v, source: "user", confidence: "HIGH" };
   return out;

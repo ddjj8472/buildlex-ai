@@ -80,3 +80,12 @@ test("case B (violations): each planted violation is a cited correction", async 
   const city2A = r.city.items.find(i => i.check_id === "2A")!;
   assert.ok(city2A.citations.every(c => c.verified), JSON.stringify(city2A.citations));
 });
+
+test("merge: text layer beats a conflicting image reading from another group", () => {
+  const files = [
+    { group: "arch-a", findings: [], notes: [], values: { 용도지역: { value: "제3종일반주거지역", source: "text" as const, confidence: "MEDIUM" as const } } },
+    { group: "site-civil", findings: [], notes: [], values: { 용도지역: { value: "제1종일반주거지역", source: "vision" as const, confidence: "HIGH" as const } } },
+  ];
+  assert.equal(mergeValues(files).용도지역?.value, "제3종일반주거지역");
+  assert.equal(mergeValues(files, { 용도지역: { value: "준주거지역", source: "user", confidence: "HIGH" } }).용도지역?.value, "준주거지역");
+});

@@ -50,7 +50,7 @@ function limitCheck(check: CheckItem, v: ProjectValues, articleId: string, r: Ra
   const notes = [...r.notes];
   const stated = num(v, statedLimitKey);
   if (!zone) return base(check, { status: "UNCLEAR", notes: [...notes, "용도지역을 판독하지 못해 기준을 정할 수 없습니다."], provided: r.provided !== undefined ? { value: r.provided, unit: "%", text: r.text } : undefined });
-  if (!lim || !art) return base(check, { status: "UNCLEAR", notes: [...notes, `${zone}의 시행령 기준 행을 찾지 못했습니다.`] });
+  if (!lim || !art) return base(check, { status: "UNCLEAR", notes: [...notes, `${zone}의 시행령 기준 행을 찾지 못했습니다.`], provided: r.provided !== undefined ? { value: r.provided, unit: "%", text: r.text } : undefined });
   let limit = lim.value;
   let requirement = `${zone} ${check.title} ${lim.value}% 이하(시행령 상한, 조례로 더 낮게 정할 수 있음)`;
   if (stated !== undefined && stated < limit) {

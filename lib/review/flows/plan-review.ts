@@ -17,7 +17,7 @@ import { sheetReviewPrompt, titleBlockPrompt } from "../prompts.ts";
 import { cityCompliance } from "../skills/local-ordinance.ts";
 import { nationalCompliance } from "../skills/korea-building.ts";
 import { FIELD_KEYS, type CheckStatus, type ComplianceFile, type ComplianceItem, type Confidence, type DraftCorrection, type DraftCorrectionsFile, type FieldKey, type FieldValue, type PageInput, type ProjectValues, type ReviewScope, type ReviewSummary, type SheetEntry, type SheetFinding, type SheetFindingsFile, type SheetManifest, type SheetType } from "../types.ts";
-import { readValues, sheetFromText, classifySheet } from "../utils/read-text.ts";
+import { readValues, sheetFromText, classifySheet, ZONE_RE, normZone } from "../utils/read-text.ts";
 import { finalItems } from "../utils/session.ts";
 
 const visionEnabled = () => hasLLM() && !isMock();
@@ -130,7 +130,8 @@ export async function runSheetReview(input: { group: string; pages: PageInput[];
         if (typeof raw.value === "string" && /^(unclear|unknown|n\/?a|none|null|-|—|없음|미상|미확인|확인\s*불가|판독\s*불가)$/i.test(raw.value.trim())) continue;
         const vv = typeof raw.value === "string" && /^[\d,.]+$/.test(raw.value) ? Number(raw.value.replace(/,/g, "")) : raw.value as FieldValue["value"];
         if (!TEXT_KEYS.has(key) && typeof vv === "string") continue;
-        const vis: FieldValue = { value: vv, unit: raw.unit, raw: raw.raw, sheet_id: raw.sheet_id, page: sheets.find(s => s.sheet_id === raw.sheet_id)?.page, source: "vision", confidence: raw.confidence || "MEDIUM" };
+        if (key === "용도지역") { const z = String(vv).match(ZONE_RE); if (!z) continue; raw.value = normZone(z[1]); }
+        const vis: FieldValue = { value: key === "용도지역" ? raw.value as string : vv, unit: raw.unit, raw: raw.raw, sheet_id: raw.sheet_id, page: sheets.find(s => s.sheet_id === raw.sheet_id)?.page, source: "vision", confidence: raw.confidence || "MEDIUM" };
         const txt = values[key];
         if (!txt) { values[key] = vis; continue; }
         const same = typeof txt.value === "number" && typeof vis.value === "number" ? Math.abs(txt.value - vis.value) < 0.011 : String(txt.value).replace(/\s/g, "") === String(vis.value).replace(/\s/g, "");
