@@ -278,6 +278,7 @@ export default function App() {
           <div><div className="brand-name">BuildLex AI</div><div className="brand-sub">건축법령 해석 AI</div></div>
         </div>
         <button type="button" className="new-chat" onClick={newChat}><IconPlus size={16} /> 새 질문</button>
+        <a className="side-link" href="/review"><IconSliders size={15} /> 도면 법규검토</a>
         <div className="side-label">최근 대화</div>
         <div className="conv-list">
           {convs.length === 0 && <div className="empty-note" style={{ textAlign: "left", padding: "4px 10px" }}>대화 기록은 이 브라우저에만 저장됩니다.</div>}

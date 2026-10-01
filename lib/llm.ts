@@ -12,13 +12,16 @@ export const isMock = () => process.env.MOCK_LLM === "1";
 export const hasLLM = () => isMock() || !!process.env.GEMINI_API_KEY;
 
 type Part = { text?: string };
+export type InlineImage = { mimeType: string; data: string };
 type GeminiResponse = { candidates?: { content?: { parts?: Part[] }; finishReason?: string }[]; error?: { message?: string } };
 
 function headers() {
   return { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY || "" };
 }
 
-export async function generateJSON<T>(prompt: string, opts: { model?: string; timeoutMs?: number; maxTokens?: number; signal?: AbortSignal } = {}): Promise<T> {
+type JSONOpts = { model?: string; timeoutMs?: number; maxTokens?: number; signal?: AbortSignal; images?: InlineImage[] };
+
+export async function generateJSON<T>(prompt: string, opts: JSONOpts = {}): Promise<T> {
   // Try the requested (fast) model, then the main model, then aliases — but only for
   // quick failures (overload, missing model, empty/invalid JSON). A timeout is final:
   // retrying it would blow the request's time budget.
@@ -39,13 +42,13 @@ export async function generateJSON<T>(prompt: string, opts: { model?: string; ti
   throw last ?? new Error("시간 부족");
 }
 
-async function generateJSONOnce<T>(prompt: string, opts: { model?: string; timeoutMs?: number; maxTokens?: number; signal?: AbortSignal } = {}): Promise<T> {
+async function generateJSONOnce<T>(prompt: string, opts: JSONOpts = {}): Promise<T> {
   const res = await fetch(`${API}/${encodeURIComponent(opts.model || FAST_MODEL)}:generateContent`, {
     method: "POST",
     headers: headers(),
     signal: anySignal(opts.signal, AbortSignal.timeout(opts.timeoutMs ?? 12000)),
     body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      contents: [{ role: "user", parts: [...(opts.images || []).map(i => ({ inlineData: i })), { text: prompt }] }],
       generationConfig: {
         temperature: 0, responseMimeType: "application/json", maxOutputTokens: opts.maxTokens ?? 4096,
         // Optional: cap "thinking" for structured calls (e.g. GEMINI_JSON_THINKING_BUDGET=0 on 2.5 models).

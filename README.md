@@ -68,6 +68,23 @@ scripts/
 docs/refresh-corpus.workflow.yml       매주 코퍼스 자동 갱신 (.github/workflows로 옮겨 사용)
 ```
 
+## 도면 법규검토 (/review)
+
+건축허가 도서 PDF를 시트별로 판독하고 국가 법령·조례로 검증해 **보완요구서(안)**을 만듭니다. 단계마다 산출물 하나를 남기고, 다음 단계는 산출물만 읽습니다.
+
+| 단계 | 처리 | 산출물 |
+|---|---|---|
+| 1 추출·도면목록 | 브라우저 pdf.js로 텍스트 레이어 추출, 도면번호를 못 읽은 페이지는 표제란 이미지 판독 | `sheet-manifest.json` |
+| 2 시트별 검토 | 분야 그룹(건축개요·면적 / 배치·주차·조경 / 입면·단면 / 구조) 3개씩 병렬, 체크리스트 기준 판독(텍스트 레이어 + 이미지) | `sheet_findings.json` |
+| 3A 국가 법령 | 시행령 조문 원문에서 기준값을 파싱해 코드로 계산 | `state_compliance.json` |
+| 3B 자치법규 | 조례 조문 탐색(3: 본문 확인, 2: 별표 미수록, 1: 국가 기준만), 상위법 초과 시 충돌 표시 | `city_compliance.json` |
+| 4 보완요구서 | 근거 없는 지적 제외, 판독 신뢰도 LOW는 [판독 확인], 구조·판단 항목은 [검토자: …] | `draft_corrections.json/.md`, `review_summary.json` |
+
+- 체크리스트: `lib/review/checklists/*` (항목별 요건·근거 조문·판독 위치·흔한 오류·법적/판독 신뢰도)
+- 법령 지식: `lib/review/skills/korea-building.ts`(국가), `local-ordinance.ts`(조례), `parking-table.ts`(주차장법 시행령 별표 1 내장표 — 법제처 API 원문이 있으면 그쪽을 우선)
+- 흐름: `lib/review/flows/plan-review.ts`, API: `app/api/review/{manifest,sheet-review,compliance,draft}`
+- 시험 도면: `python3 scripts/make-test-drawings.py` (가상 도면 2종, 정답값 `tests/drawings/*.truth.json`), `npm test`
+
 ## 실행
 
 ```bash
