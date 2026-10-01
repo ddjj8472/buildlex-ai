@@ -130,7 +130,7 @@ export async function runSheetReview(input: { group: string; pages: PageInput[];
         const txt = values[key];
         if (!txt) { values[key] = vis; continue; }
         const same = typeof txt.value === "number" && typeof vis.value === "number" ? Math.abs(txt.value - vis.value) < 0.011 : String(txt.value).replace(/\s/g, "") === String(vis.value).replace(/\s/g, "");
-        if (same) values[key] = { ...txt, confidence: "HIGH" };
+        if (same || typeof txt.value === "string" && /건축사날인|주용도|대지위치|구조/.test(key)) values[key] = { ...txt, confidence: same ? "HIGH" : txt.confidence };
         else {
           notes.push(`${key}: 텍스트 레이어 ${txt.value} / 이미지 판독 ${vis.value} — 불일치, 확인 필요`);
           values[key] = RANK[vis.confidence] >= 3 && txt.confidence !== "HIGH" ? { ...vis, confidence: "LOW" } : { ...txt, confidence: "LOW" };
