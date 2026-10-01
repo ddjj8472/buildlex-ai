@@ -11,7 +11,7 @@ const PDFJS = "/vendor/pdfjs";
 type PdfPage = {
   getViewport(o: { scale: number }): { width: number; height: number };
   getTextContent(): Promise<{ items: { str: string; transform: number[]; width: number; height: number }[] }>;
-  render(o: { canvasContext: CanvasRenderingContext2D; viewport: unknown }): { promise: Promise<void> };
+  render(o: { canvasContext: CanvasRenderingContext2D; viewport: unknown; intent?: "display" | "print" }): { promise: Promise<void> };
   cleanup(): void;
 };
 export type PdfDoc = { numPages: number; getPage(n: number): Promise<PdfPage>; destroy(): Promise<void> };
@@ -53,7 +53,8 @@ async function renderCanvas(doc: PdfDoc, n: number, targetWidth: number): Promis
   canvas.width = Math.round(viewport.width); canvas.height = Math.round(viewport.height);
   const ctx = canvas.getContext("2d")!;
   ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-  await page.render({ canvasContext: ctx, viewport }).promise;
+  // "print" intent renders without requestAnimationFrame, which browsers pause in background tabs.
+  await page.render({ canvasContext: ctx, viewport, intent: "print" }).promise;
   page.cleanup();
   return canvas;
 }
