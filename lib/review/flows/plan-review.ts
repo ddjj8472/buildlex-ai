@@ -21,6 +21,7 @@ import { readValues, sheetFromText, classifySheet } from "../utils/read-text.ts"
 import { finalItems } from "../utils/session.ts";
 
 const visionEnabled = () => hasLLM() && !isMock();
+const TEXT_KEYS = new Set<FieldKey>(["대지위치", "용도지역", "용도지구", "주용도", "건축사날인", "구조", "지구단위계획"]);
 
 function toImage(dataUrl?: string): InlineImage | null {
   const m = dataUrl?.match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/);
@@ -125,12 +126,20 @@ export async function runSheetReview(input: { group: string; pages: PageInput[];
       for (const [k, raw] of Object.entries(r.values || {})) {
         if (!(FIELD_KEYS as readonly string[]).includes(k) || raw?.value === undefined || raw.value === null || raw.value === "") continue;
         const key = k as FieldKey;
+        // Models sometimes fill unreadable fields with placeholders — treat as not read.
+        if (typeof raw.value === "string" && /^(unclear|unknown|n\/?a|none|null|-|—|없음|미상|미확인|확인\s*불가|판독\s*불가)$/i.test(raw.value.trim())) continue;
         const vv = typeof raw.value === "string" && /^[\d,.]+$/.test(raw.value) ? Number(raw.value.replace(/,/g, "")) : raw.value as FieldValue["value"];
+        if (!TEXT_KEYS.has(key) && typeof vv === "string") continue;
         const vis: FieldValue = { value: vv, unit: raw.unit, raw: raw.raw, sheet_id: raw.sheet_id, page: sheets.find(s => s.sheet_id === raw.sheet_id)?.page, source: "vision", confidence: raw.confidence || "MEDIUM" };
         const txt = values[key];
         if (!txt) { values[key] = vis; continue; }
         const same = typeof txt.value === "number" && typeof vis.value === "number" ? Math.abs(txt.value - vis.value) < 0.011 : String(txt.value).replace(/\s/g, "") === String(vis.value).replace(/\s/g, "");
-        if (same || typeof txt.value === "string" && /건축사날인|주용도|대지위치|구조/.test(key)) values[key] = { ...txt, confidence: same ? "HIGH" : txt.confidence };
+        if (same || TEXT_KEYS.has(key)) values[key] = { ...txt, confidence: same ? "HIGH" : txt.confidence };
+        else if (key === "법정주차대수_도면" && typeof txt.value === "number" && typeof vis.value === "number") {
+          // Several stated minimums (e.g. 교통영향평가 vs 조례) — the larger one binds.
+          values[key] = txt.value >= vis.value ? txt : vis;
+          notes.push(`법정 주차대수 표기가 여러 개입니다(${txt.value}대, ${vis.value}대) — 큰 값을 적용했습니다.`);
+        }
         else {
           notes.push(`${key}: 텍스트 레이어 ${txt.value} / 이미지 판독 ${vis.value} — 불일치, 확인 필요`);
           values[key] = RANK[vis.confidence] >= 3 && txt.confidence !== "HIGH" ? { ...vis, confidence: "LOW" } : { ...txt, confidence: "LOW" };
@@ -187,10 +196,11 @@ export function runDraft(input: { manifest: SheetManifest; findings: SheetFindin
     else if (it.status === "FAIL") {
       const plan = it.provided ? ` / 계획: ${it.provided.text}` : "";
       const why = it.notes.filter(Boolean).join(" ");
-      description = `${check.title} — 기준: ${it.requirement}${plan}.${why ? ` ${why}` : ""} 기준에 적합하도록 도서를 보완하시기 바랍니다.`;
+      description = `${check.title} — 기준: ${it.requirement.replace(/\.$/, "")}${plan}.${why ? ` ${why}` : ""} 기준에 적합하도록 도서를 보완하시기 바랍니다.`;
     } else {
       action = "VERIFY";
-      description = `[확인 필요] ${check.title}: ${it.notes.join(" ") || "판독 또는 기준 확인이 필요합니다."}${it.provided ? ` (${it.provided.text})` : ""}`;
+      const unread = !it.provided && check.fields.length ? `계획값을 판독하지 못했습니다(${check.fields.join(", ")} 확인). 판독값을 입력하면 다시 판정합니다.` : "";
+      description = `[확인 필요] ${check.title}: ${[...it.notes.filter(Boolean), unread].filter(Boolean).join(" ") || "기준 확인이 필요합니다."}${it.provided ? ` (${it.provided.text})` : ""}`;
     }
     let confidence: Confidence = !verified.length ? "LOW" : it.code_confidence;
     if (it.tier === 2) confidence = minConf(confidence, "MEDIUM");
