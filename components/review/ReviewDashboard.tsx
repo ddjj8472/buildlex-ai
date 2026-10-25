@@ -145,6 +145,7 @@ export default function ReviewDashboard() {
       <header className="rv-top">
         <Link href="/" className="ghost rv-back"><IconBack size={16} /> 법령 질의</Link>
         <div className="rv-brand"><span className="brand-mark"><IconLogo size={17} /></span><div><div className="brand-name">도면 법규검토</div><div className="brand-sub">건축허가 도서 자동 검토 · 보완요구서 초안</div></div></div>
+        <nav className="bim-nav"><Link href="/bim" className="ghost">BIM(IFC) 3D 검토</Link></nav>
       </header>
 
       <main className="rv-main">

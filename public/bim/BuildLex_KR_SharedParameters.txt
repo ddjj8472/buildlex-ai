@@ -1,0 +1,29 @@
+# This is a Revit shared parameter file.
+# Do not edit manually.
+*META	VERSION	MINVERSION
+META	2	1
+*GROUP	ID	NAME
+GROUP	1	BuildLex_KR
+*PARAM	GUID	NAME	DATATYPE	DATACATEGORY	GROUP	VISIBLE	DESCRIPTION	USERMODIFIABLE	HIDEWHENNOVALUE
+PARAM	96e1f954-5111-5bf7-a6ad-bc75f1537635	대지위치	TEXT		1	1	지번 주소(시·군·구까지 있으면 조례 자동 적용)	1	0
+PARAM	72ce618a-aef0-5c3a-823d-cfe0ad33a520	용도지역	TEXT		1	1	국토계획법 용도지역, 예: 제2종일반주거지역	1	0
+PARAM	bff88ba9-e31a-52c7-87f1-3b97088138f2	용도지구	TEXT		1	1	용도지구(있는 경우)	1	0
+PARAM	03c0aaf9-2df9-5009-b820-03f5b847b704	대지면적	AREA		1	1	대지면적(㎡). 없으면 대지경계선(IfcSite FootPrint)으로 계산	1	0
+PARAM	7d9bfe72-392a-5cc2-9e51-5a8bcfac1e0d	전면도로폭	LENGTH		1	1	대지가 접한 도로의 너비	1	0
+PARAM	2d713ad4-2623-50ec-aa2b-65ebb5813ca9	접도길이	LENGTH		1	1	대지가 도로에 접한 길이	1	0
+PARAM	c82384d0-8ab8-59d9-abcb-062b5dc03f15	지구단위계획	YESNO		1	1	지구단위계획구역·택지지구 여부	1	0
+PARAM	fd5771b0-9fe1-5b7d-83dc-50ae17c38b09	주용도	TEXT		1	1	건축법 시행령 별표 1 용도, 예: 공동주택(아파트), 제2종 근린생활시설	1	0
+PARAM	504427bc-b4c6-5b7f-a5a7-e00548d560ab	세대수	INTEGER		1	1	공동주택 세대수	1	0
+PARAM	acfc3282-77db-5f47-910b-2eec16f377d9	주요구조부내화	YESNO		1	1	주요구조부가 내화구조 또는 불연재료인지(직통계단 보행거리 30m→50m)	1	0
+PARAM	0caff800-1bfd-5c5d-b907-99c8d38b5aaa	사업계획승인대상	YESNO		1	1	주택법 사업계획승인 대상(주택건설기준 등에 관한 규정 적용)	1	0
+PARAM	53c4fc53-00e2-545a-8c3d-fe58b06c5350	구조	TEXT		1	1	구조 형식, 예: 철근콘크리트조	1	0
+PARAM	737b681e-af89-5eab-b34e-3a901890d393	지표면표고	LENGTH		1	1	높이 산정 기준 지표면(없으면 1층 바닥)	1	0
+PARAM	fe845515-cce6-5f46-81ea-32855f59c971	피난층	YESNO		1	1	직접 지상으로 통하는 출입구가 있는 층(없으면 지상 첫 층)	1	0
+PARAM	42f7e508-4fee-59e7-bb1f-16ebc927034a	층용도	TEXT		1	1	층별 용도가 주용도와 다를 때(복합용도)	1	0
+PARAM	80016fa7-1ffe-5004-aacb-c15f110260fc	실용도	TEXT		1	1	실 분류(없으면 실 이름으로 추정)	1	0
+PARAM	9a1a09af-f477-5ddd-b103-fb575ac25a7f	세대번호	TEXT		1	1	공동주택 세대 번호(층별 세대수 산정)	1	0
+PARAM	b43dfff9-30e1-55c9-950c-b6a4f9f1a79d	용적률제외	YESNO		1	1	용적률 산정에서 제외하는 면적(지상 주차 등)	1	0
+PARAM	c4ce6881-ade5-5ed9-b843-76515471af3a	주출입구	YESNO		1	1	건축물 주출입구	1	0
+PARAM	923e9810-35a6-5393-8701-df54f012af74	유효폭	LENGTH		1	1	출입문 통과 유효폭(없으면 문 폭 − 문틀 추정)	1	0
+PARAM	0c4c0af0-d826-54e2-9b21-b21e64c8a772	난간위치	TEXT		1	1	계단 / 옥상 / 노대 / 실내	1	0
+PARAM	2a910eba-0b95-5b8b-bdc5-16469f6627a4	주차형식	TEXT		1	1	주차구획 형식	1	0

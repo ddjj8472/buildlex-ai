@@ -21,3 +21,4 @@ export const IconInfo = (p: P) => <S {...p}><circle cx="12" cy="12" r="9" /><pat
 export const IconPanel = (p: P) => <S {...p}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></S>;
 export const IconBack = (p: P) => <S {...p}><path d="M15 6l-6 6 6 6" /></S>;
 export const IconSliders = (p: P) => <S {...p}><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></S>;
+export const IconCube = (p: P) => <S {...p}><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" /></S>;

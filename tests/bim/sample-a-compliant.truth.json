@@ -1,0 +1,19 @@
+{
+  "storeys_above": 3,
+  "storeys_below": 0,
+  "height": 9.9,
+  "building_area": 151.04,
+  "gross_floor_area": 453.12,
+  "far_floor_area": 453.12,
+  "site_area": 500.0,
+  "parking": 3,
+  "landscape_area": 60.0,
+  "north_min_low": 8.0,
+  "egress_max": [
+    11.0,
+    13.5
+  ],
+  "expect": {
+    "FAIL": []
+  }
+}

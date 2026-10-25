@@ -11,17 +11,22 @@
     "corpus": "tsx scripts/build-corpus.ts",
     "embed": "tsx scripts/embed.ts",
     "eval": "tsx scripts/eval-retrieval.ts",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "postinstall": "node scripts/vendor-web-ifc.mjs",
+    "ifc-samples": "python3 scripts/make-test-ifc.py"
   },
   "dependencies": {
     "next": "16.3.7",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "three": "^0.186.1",
+    "web-ifc": "0.0.78"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/three": "^0.186.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0"
   }

@@ -1,0 +1,35 @@
+#
+# BuildLex_KR — Revit IFC 내보내기 사용자 정의 속성 세트
+# IFC 내보내기 → 설정 수정 → 속성 세트 → '사용자 정의 속성 세트 내보내기'에 이 파일을 지정하세요.
+# IfcSite·IfcBuilding 값은 Revit '프로젝트 정보'의 같은 이름 매개변수에서 읽습니다.
+#
+PropertySet:	BuildLex_KR	I	IfcSite
+	대지위치	Text	대지위치
+	용도지역	Text	용도지역
+	용도지구	Text	용도지구
+	대지면적	Area	대지면적
+	전면도로폭	Length	전면도로폭
+	접도길이	Length	접도길이
+	지구단위계획	Boolean	지구단위계획
+PropertySet:	BuildLex_KR	I	IfcBuilding
+	주용도	Text	주용도
+	세대수	Integer	세대수
+	주요구조부내화	Boolean	주요구조부내화
+	사업계획승인대상	Boolean	사업계획승인대상
+	구조	Text	구조
+	지표면표고	Length	지표면표고
+PropertySet:	BuildLex_KR	I	IfcBuildingStorey
+	피난층	Boolean	피난층
+	층용도	Text	층용도
+PropertySet:	BuildLex_KR	I	IfcSpace
+	실용도	Text	실용도
+	세대번호	Text	세대번호
+	용적률제외	Boolean	용적률제외
+PropertySet:	BuildLex_KR	I	IfcBuildingElementProxy
+	실용도	Text	실용도
+	주차형식	Text	주차형식
+PropertySet:	BuildLex_KR	I	IfcDoor
+	주출입구	Boolean	주출입구
+	유효폭	Length	유효폭
+PropertySet:	BuildLex_KR	I	IfcRailing
+	난간위치	Text	난간위치

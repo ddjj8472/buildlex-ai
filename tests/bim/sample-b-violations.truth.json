@@ -1,0 +1,34 @@
+{
+  "storeys_above": 5,
+  "storeys_below": 0,
+  "height": 15.0,
+  "building_area": 422.44,
+  "gross_floor_area": 2112.2,
+  "far_floor_area": 2112.2,
+  "site_area": 1104.0,
+  "parking": 3,
+  "landscape_area": 48.0,
+  "north_min_high": 6.0,
+  "egress_max": [
+    32.0,
+    38.0
+  ],
+  "expect": {
+    "FAIL": [
+      "3B",
+      "B-EGRESS-DIST",
+      "B-EGRESS-COUNT",
+      "B-STAIR-WIDTH",
+      "B-STAIR-STEP",
+      "B-STAIR-LANDING",
+      "B-STAIR-GUARD",
+      "B-CORRIDOR",
+      "B-CEILING",
+      "B-DAYLIGHT-WINDOW",
+      "B-GUARD",
+      "B-DOOR",
+      "B-PARKING-STALL",
+      "B-NORTH"
+    ]
+  }
+}

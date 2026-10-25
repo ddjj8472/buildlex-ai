@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EvalMode, SiteFacts, StreamEvent } from "@/lib/types";
-import { IconAlert, IconBook, IconCheck, IconClose, IconInfo, IconLogo, IconMenu, IconMoon, IconPanel, IconPlus, IconSend, IconSliders, IconStop, IconSun, IconTrash } from "./Icons";
+import { IconAlert, IconBook, IconCheck, IconCube, IconClose, IconInfo, IconLogo, IconMenu, IconMoon, IconPanel, IconPlus, IconSend, IconSliders, IconStop, IconSun, IconTrash } from "./Icons";
 import Markdown from "./Markdown";
 import Panel, { type PanelTab } from "./Panel";
 import RegionPicker from "./RegionPicker";
@@ -279,6 +279,7 @@ export default function App() {
         </div>
         <button type="button" className="new-chat" onClick={newChat}><IconPlus size={16} /> 새 질문</button>
         <a className="side-link" href="/review"><IconSliders size={15} /> 도면 법규검토</a>
+        <a className="side-link" href="/bim"><IconCube size={15} /> BIM 법규검토 (3D)</a>
         <div className="side-label">최근 대화</div>
         <div className="conv-list">
           {convs.length === 0 && <div className="empty-note" style={{ textAlign: "left", padding: "4px 10px" }}>대화 기록은 이 브라우저에만 저장됩니다.</div>}
