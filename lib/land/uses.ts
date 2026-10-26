@@ -72,6 +72,8 @@ export type UseRef = {
   floorsLimit?: number;
   /** The item carries a "다만, …" proviso (exceptions the text spells out). */
   proviso?: boolean;
+  /** "별표 4 제2호차목 및 카목의 공장": the item points at another 별표 of the same decree. */
+  crossRef?: string;
 };
 export type UseItem = { part: 1 | 2; label: string; text: string; refs: UseRef[] };
 export type UseTable = { mode: "allow" | "deny"; items: UseItem[]; headers: { part: 1 | 2; text: string }[] };
@@ -89,6 +91,16 @@ const WORDS = (s: string) => s.split(/\s*(?:[,ㆍ·및]|와|과|또는|그밖에
 /** Read the use references out of one item line. */
 export function parseRefs(line: string): UseRef[] {
   const out: UseRef[] = [];
+  // References to another 별표 of the same decree ("별표 4 제2호차목 및 카목의 공장") — not to
+  // 「건축법 시행령」 별표 1. The category comes from the noun that follows; the detail lives in
+  // the other 별표, so a match is only ever partial.
+  const XREF = /(?<!」\s*)별표\s*(\d+(?:의\d+)?)\s*(제\d+호[^의]*?)의\s*([^,(.]+?)(?=\s*(?:\(|,|중\s|으로서|로서|$|\.))/g;
+  for (const x of line.matchAll(XREF)) {
+    const name = x[3].trim();
+    const cat = useOf(name);
+    if (cat.no) out.push({ no: cat.no, name, exclude: [], crossRef: `별표 ${x[1]} ${x[2].replace(/\s+/g, " ").trim()}` });
+  }
+  line = line.replace(XREF, " ");
   const re = /제(\d+)호(?:의(\d+))?(?:\s*([가-하])목)?(?:의|에\s*따른)\s*/g;
   const hits = [...line.matchAll(re)];
   for (let i = 0; i < hits.length; i++) {
@@ -212,6 +224,7 @@ export function matchRef(u: UseOf, r: UseRef): { match: Match; why: string } {
     else if (u.floors > r.floorsLimit) return { match: "none", why: `${u.floors}층 > ${r.floorsLimit}층 이하 조건` };
   }
   if (r.proviso) { partial = true; reasons.push("단서(다만) 예외 있음"); }
+  if (r.crossRef) { partial = true; reasons.push(`${r.crossRef}에서 정한 것만 해당`); }
   return { match: partial ? "partial" : "full", why: reasons.join(", ") };
 }
 

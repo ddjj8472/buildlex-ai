@@ -102,6 +102,13 @@ test("use lists: 별표 format (allow / deny, flattened text), ordinance lists, 
   assert.equal(matchRef(useOf("창고시설", { area: 300 }), big).match, "none");
   assert.equal(matchRef(useOf("창고시설", { area: 800 }), big).match, "full");
   assert.equal(matchRef(useOf("창고시설"), big).match, "partial");
+  // A pointer to another 별표 of the same decree is not 「건축법 시행령」 별표 1 제2호(공동주택).
+  const xr = parseRefs("별표 4 제2호차목 및 카목의 공장");
+  assert.equal(xr.length, 1);
+  assert.equal(xr[0].no, "17");
+  assert.equal(xr[0].crossRef, "별표 4 제2호차목 및 카목");
+  assert.equal(matchRef(useOf("공장(인쇄업)"), xr[0]).match, "partial");
+  assert.equal(parseRefs("「건축법 시행령」 별표 1 제17호의 공장")[0].crossRef, undefined);
   const [pv] = parseRefs("제15호의 숙박시설. 다만, 위원회 심의를 거친 것은 그러하지 아니하다.");
   assert.equal(pv.proviso, true);
   assert.equal(matchRef(useOf("숙박시설(일반숙박시설)"), pv).match, "partial");

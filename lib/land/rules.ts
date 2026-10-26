@@ -80,6 +80,7 @@ export async function ruleZoneUse(c: LandContext): Promise<BimRuleResult> {
   const hits = zt.table.items.map(it => ({ it, m: matchItem(u, it) })).filter(x => x.m.match !== "none");
   const p1 = hits.filter(h => h.it.part === 1), p2 = hits.filter(h => h.it.part === 2);
   const full1 = p1.find(h => h.m.match === "full");
+  const unparsed = zt.table.items.filter(i => !i.refs.length);
   const q = (it: UseItem) => `${it.label}. ${it.text}`.slice(0, 240);
   const cites = (xs: typeof hits) => xs.slice(0, 3).map(h => verifiedQuote(ap, q(h.it), liveText ?? (zt.source === "corpus" ? ap.text : undefined)));
   const notes = [`판정 대상: ${use} → 「건축법 시행령」 별표 1 제${u.no}호 ${u.name}`, `별표 원문 출처: ${zt.source === "live" ? "법제처 국가법령정보 Open API(실시간)" : "코퍼스"}`];
@@ -94,7 +95,11 @@ export async function ruleZoneUse(c: LandContext): Promise<BimRuleResult> {
     if (full1) { status = "PASS"; b.citations!.push(...cites([full1])); }
     else if (p1.length) { status = "UNCLEAR"; b.citations!.push(...cites(p1)); issues.push(issue("Z-USE", 1, "UNCLEAR", "major", `${zone}: 조건부 허용`, `${p1[0].m.why || "세부 용도·규모 조건"}을 만족하면 건축할 수 있습니다.`)); }
     else if (p2.length) { status = "UNCLEAR"; b.citations!.push(...cites(p2)); b.tier = 2; issues.push(issue("Z-USE", 1, "UNCLEAR", "major", `${zone}: 도시·군계획조례로 허용 여부 결정`, `${apLabel} 제2호(조례 위임) 항목입니다. ${ordinanceNote()}${p2[0].m.why ? ` 조건: ${p2[0].m.why}` : ""}`)); }
-    else {
+    else if (unparsed.length) {
+      // Some items could not be read as use references — do not call it a prohibition.
+      status = "UNCLEAR";
+      issues.push(issue("Z-USE", 1, "UNCLEAR", "major", `${zone}: ${u.name} 허용 여부 확인`, `${apLabel}에서 읽은 항목에는 ${use}가 없지만, 자동으로 읽지 못한 항목(${unparsed.map(i => `${i.part}.${i.label}`).join(", ")})이 있어 원문을 확인하세요: ${unparsed.map(i => i.text.slice(0, 80)).join(" / ")}`));
+    } else {
       status = "FAIL";
       issues.push(issue("Z-USE", 1, "FAIL", "critical", `${zone}에서 ${u.name} 건축 불가`, `${apLabel}의 건축할 수 있는 건축물(조례 위임분 포함)에 ${use}가 없습니다.`));
       if (zt.table.headers.length) b.citations!.push(verifiedQuote(ap, zt.table.headers.map(h => `${h.part}. ${h.text}`).join(" / "), liveText ?? ap.text));
@@ -103,6 +108,7 @@ export async function ruleZoneUse(c: LandContext): Promise<BimRuleResult> {
     if (full1) { status = "FAIL"; b.citations!.push(...cites([full1])); issues.push(issue("Z-USE", 1, "FAIL", "critical", `${zone}에서 ${u.name} 건축 불가`, `${apLabel}의 건축할 수 없는 건축물에 해당합니다.${full1.m.why ? ` (${full1.m.why})` : ""}`)); }
     else if (p1.length) { status = "UNCLEAR"; b.citations!.push(...cites(p1)); issues.push(issue("Z-USE", 1, "UNCLEAR", "major", `${zone}: 일부 금지 대상`, `${p1[0].m.why || "세부 용도"}에 따라 건축할 수 없을 수 있습니다.`)); }
     else if (p2.length) { status = "UNCLEAR"; b.citations!.push(...cites(p2)); b.tier = 2; issues.push(issue("Z-USE", 1, "UNCLEAR", "minor", `${zone}: 조례로 금지될 수 있음`, `${apLabel} 제2호(조례로 건축할 수 없는 건축물) 항목입니다. ${ordinanceNote()}`)); }
+    else if (unparsed.length) { status = "UNCLEAR"; issues.push(issue("Z-USE", 1, "UNCLEAR", "minor", `${zone}: 금지 목록 일부 확인`, `자동으로 읽지 못한 금지 항목이 있습니다: ${unparsed.map(i => i.text.slice(0, 80)).join(" / ")}`)); }
     else status = "PASS";
   }
   // 복합용도지구 can widen what a 일반주거·일반공업·계획관리 zone allows (시행령 제81조).
@@ -122,6 +128,7 @@ export async function useMatrix(zone: string, opts: { region?: Region | null; di
   const out: UseMatrix = { zone: z, rows: [], notes: [] };
   if (!zt) { out.notes.push(`${z}의 건축제한 별표를 찾지 못했습니다.`); return out; }
   out.appendix = { id: zt.chunk?.id || "", label: `시행령 ${zt.ref.appendix.replace("별표", "별표 ")}`, url: zt.chunk?.attachment || zt.chunk?.sourceUrl, mode: zt.ref.mode, source: zt.source };
+  const unreadable = zt.table ? zt.table.items.filter(i => !i.refs.length) : [];
   const districtLists = (opts.districts || []).map(d => ({ d, items: districtUseList(opts.region || null, d.name)?.items || [] })).filter(x => x.items.length);
   for (const cat of USE_CATEGORIES) {
     const u = useOf(cat.name);
@@ -131,8 +138,10 @@ export async function useMatrix(zone: string, opts: { region?: Region | null; di
       const p1 = hits.filter(h => h.it.part === 1), p2 = hits.filter(h => h.it.part === 2);
       const pick = p1[0] || p2[0];
       const txt = pick ? `${pick.it.label}. ${pick.it.text}` : undefined;
-      if (zt.ref.mode === "allow") row = { ...row, verdict: p1.some(h => h.m.match === "full") ? "허용" : p1.length ? "조건" : p2.length ? "조례" : "불허", text: txt };
-      else row = { ...row, verdict: p1.some(h => h.m.match === "full") ? "불허" : p1.length ? "조건" : p2.length ? "조례" : "허용", text: txt };
+      // With unreadable items in the table, "not listed" is not proof — show 확인 instead.
+      const absent: UseRow["verdict"] = unreadable.length ? "확인" : zt.ref.mode === "allow" ? "불허" : "허용";
+      if (zt.ref.mode === "allow") row = { ...row, verdict: p1.some(h => h.m.match === "full") ? "허용" : p1.length ? "조건" : p2.length ? "조례" : absent, text: txt };
+      else row = { ...row, verdict: p1.some(h => h.m.match === "full") ? "불허" : p1.length ? "조건" : p2.length ? "조례" : absent, text: txt };
     }
     for (const { d, items } of districtLists) {
       const hit = items.map(it => matchItem(u, it)).find(m => m.match !== "none");
@@ -141,7 +150,10 @@ export async function useMatrix(zone: string, opts: { region?: Region | null; di
     out.rows.push(row);
   }
   if (!zt.table) out.notes.push(`${out.appendix.label} 본문을 불러오지 못해 용도지역 기준은 판정하지 않았습니다('확인')${zt.why ? ` — ${zt.why}` : ""}.${districtLists.length ? " 표시된 불허·조건은 용도지구 조례에 따른 것입니다." : ""}`);
-  else out.notes.push("대분류(별표 1 호) 기준 판정입니다. 세부 용도·면적·층수 조건이 있는 항목은 '조건'으로 표시합니다.");
+  else {
+    out.notes.push("대분류(별표 1 호) 기준 판정입니다. 세부 용도·면적·층수 조건이 있는 항목은 '조건'으로 표시합니다.");
+    if (unreadable.length) out.notes.push(`자동으로 읽지 못한 항목이 있어 목록에 없는 용도는 '확인'으로 두었습니다: ${unreadable.map(i => `${i.part}.${i.label} ${i.text.slice(0, 60)}`).join(" / ")}`);
+  }
   return out;
 }
 
