@@ -125,7 +125,7 @@ npm test && npm run eval
    - `GEMINI_MODEL`
    - `LAW_API_OC`
    - (선택) `GEMINI_FAST_MODEL`
-   - (선택, 지도 대지 선택) `VWORLD_API_KEY`, `VWORLD_DOMAIN`(키에 등록한 서비스 URL), `VWORLD_MAP_KEY`. 브이월드를 쓰면 Settings → Functions에서 함수 지역을 `icn1`(서울)로 두세요.
+   - (선택, 지도 대지 선택) `VWORLD_API_KEY`, `VWORLD_DOMAIN`(키에 등록한 서비스 URL), `VWORLD_MAP_KEY`. 함수 지역은 `vercel.json`에서 `icn1`(서울)로 고정했습니다.
 3. `/api/ask`는 `maxDuration = 60`입니다. 자동 재검색 모드는 시간이 더 걸릴 수 있으니, 가능하면 Pro 플랜에서 더 긴 실행 시간을 쓰세요.
 4. 코퍼스 파일은 `next.config.ts`의 `outputFileTracingIncludes`로 서버 함수에 포함됩니다(약 45MB).
 
