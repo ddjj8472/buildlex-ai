@@ -213,8 +213,8 @@ export type BimIssue = {
 };
 
 export type BimRuleResult = ComplianceItem & {
-  section: "대지·밀도" | "높이·일조" | "피난·계단" | "복도·실" | "채광·환기" | "난간·출입구" | "주차·조경";
-  source: "bim" | "values";
+  section: "입지·용도" | "대지·밀도" | "높이·일조" | "피난·계단" | "복도·실" | "채광·환기" | "난간·출입구" | "주차·조경";
+  source: "bim" | "values" | "land";
   issues: BimIssue[];
   checked: number;
   /** Parsed thresholds the viewer reuses for overlays (e.g. 정북 사선, 보행거리 색상). */

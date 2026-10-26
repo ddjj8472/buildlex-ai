@@ -16,6 +16,7 @@
     "ifc-samples": "python3 scripts/make-test-ifc.py"
   },
   "dependencies": {
+    "leaflet": "^1.9.4",
     "next": "16.3.7",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -23,6 +24,7 @@
     "web-ifc": "0.0.78"
   },
   "devDependencies": {
+    "@types/leaflet": "^1.9.22",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

@@ -9,6 +9,8 @@ import { IconAlert, IconBack, IconLogo } from "@/components/Icons";
 import Markdown from "@/components/Markdown";
 import RegionPicker from "@/components/RegionPicker";
 import ValuesForm from "@/components/review/ValuesForm";
+import SitePanel from "@/components/land/SitePanel";
+import type { SiteInfo } from "@/lib/land/types";
 import type { BimFacts, BimIssue, BimReviewResult, BimRuleResult, EgressField, SpaceUse, Vec3 } from "@/lib/bim/types";
 import type { CheckStatus, FieldKey, FieldValue, ProjectValues } from "@/lib/review/types";
 import { buildBcf, type BcfTopic } from "./bcf";
@@ -48,7 +50,12 @@ export default function BimDashboard() {
   const [values, setValues] = useState<ProjectValues>({});
   const [dirty, setDirty] = useState(false);
   const [region, setRegion] = useState("");
-  const [tab, setTab] = useState<"rules" | "values" | "report" | "model">("rules");
+  const [tab, setTab] = useState<"rules" | "site" | "values" | "report" | "model">("rules");
+  const [site, setSite] = useState<SiteInfo | null>(null);
+  const [siteDirty, setSiteDirty] = useState(false);
+  const siteRef = useRef<SiteInfo | null>(null);
+  useEffect(() => { siteRef.current = site; }, [site]);
+  const changeSite = (s: SiteInfo | null) => { setSite(s); setSiteDirty(true); };
   const [onlyProblems, setOnlyProblems] = useState(true);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [storey, setStorey] = useState<number | null>(null);
@@ -69,11 +76,12 @@ export default function BimDashboard() {
   const check = useCallback(async (f: BimFacts, v: ProjectValues, reg: string) => {
     setChecking(true); setError("");
     try {
-      const res = await fetch("/api/bim/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ facts: f, values: v, region: reg || undefined }) });
+      const s = siteRef.current;
+      const res = await fetch("/api/bim/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ facts: f, values: v, region: reg || s?.region?.key || undefined, site: s ? { ...s, parcel: undefined } : undefined }) });
       const data = await res.json().catch(() => ({ error: `서버 응답 오류(${res.status})` }));
       if (!res.ok || !data.ok) throw new Error(data.error || `요청 실패(${res.status})`);
       const r = data.result as BimReviewResult;
-      setResult(r); setValues(r.values); setDirty(false);
+      setResult(r); setValues(r.values); setDirty(false); setSiteDirty(false);
       setOpen(Object.fromEntries(r.rules.filter(x => x.status === "FAIL").slice(0, 2).map(x => [x.check_id, true])));
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setChecking(false); }
@@ -155,6 +163,8 @@ export default function BimDashboard() {
     finally { setSel(prev.sel); setStorey(prev.storey); setHeatOn(prev.heatOn); setEnvOn(prev.envOn); setExporting(""); }
   }
 
+  /** Only values the user typed go back to the server; model/site values are recomputed there. */
+  const userValues = (v: ProjectValues): ProjectValues => Object.fromEntries(Object.entries(v).filter(([, x]) => x?.source === "user")) as ProjectValues;
   const editValue = (k: FieldKey, fv: FieldValue | undefined) => { setDirty(true); setValues(cur => { const next = { ...cur }; if (fv) next[k] = fv; else delete next[k]; return next; }); };
   const rules = (result?.rules || []).filter(r => !onlyProblems || r.status === "FAIL" || r.status === "UNCLEAR");
   const sections = [...new Set(rules.map(r => r.section))];
@@ -173,7 +183,11 @@ export default function BimDashboard() {
       {!model && (
         <main className="rv-main">
           <section className="rv-card">
-            <h2>IFC 모델 불러오기</h2>
+            <h2>1. 대지 선택 <small className="bim-optional">선택 — 고르면 용도지역·지구·구역, 지구단위계획까지 검토합니다</small></h2>
+            <SitePanel site={site} onChange={changeSite} />
+          </section>
+          <section className="rv-card">
+            <h2>2. IFC 모델 불러오기</h2>
             <p className="rv-help">Revit에서 <b>파일 → 내보내기 → IFC</b>로 저장한 .ifc 파일을 올리세요(IFC2x3·IFC4). 파일은 브라우저 안에서만 열리고, 서버에는 측정값 요약만 전송됩니다.</p>
             <div className="rv-upload">
               <label className={`rv-drop${busy ? " disabled" : ""}`}>
@@ -182,7 +196,7 @@ export default function BimDashboard() {
               </label>
               <div className="rv-samples">{SAMPLES.map(s => <button key={s.file} type="button" className="ghost" disabled={busy} onClick={() => void load({ url: s.file, name: s.file.split("/").pop()! })}>{s.label}</button>)}</div>
             </div>
-            <div className="rv-options"><div className="rv-opt"><span>지역(선택)</span><RegionPicker value={region} onChange={setRegion} placement="down" /></div><span className="rv-help" style={{ margin: 0 }}>비우면 모델의 대지위치로 조례를 찾습니다.</span></div>
+            {!site && <div className="rv-options"><div className="rv-opt"><span>지역(선택)</span><RegionPicker value={region} onChange={setRegion} placement="down" /></div><span className="rv-help" style={{ margin: 0 }}>대지를 고르지 않으면 모델의 대지위치로 조례를 찾습니다.</span></div>}
             {progress && (
               <div className="bim-progress" aria-live="polite">
                 <div className="bim-bar"><span style={{ width: `${Math.round(progress.pct * 100)}%` }} /></div>
@@ -250,7 +264,7 @@ export default function BimDashboard() {
               </div>
             )}
             <div className="tabs rv-tabs" role="tablist">
-              {([["rules", "검토 결과"], ["values", "건축개요"], ["report", "보완요구서"], ["model", "모델 정보"]] as const).map(([k, l]) => (
+              {([["rules", "검토 결과"], ["site", "대지"], ["values", "건축개요"], ["report", "보완요구서"], ["model", "모델 정보"]] as const).map(([k, l]) => (
                 <button key={k} type="button" role="tab" aria-selected={tab === k} className={`tab${tab === k ? " on" : ""}`} onClick={() => setTab(k)}>{l}</button>
               ))}
             </div>
@@ -314,13 +328,22 @@ export default function BimDashboard() {
               </div>
             )}
 
+            {tab === "site" && (
+              <div>
+                <SitePanel site={site} onChange={changeSite} use={typeof values.주용도?.value === "string" ? values.주용도.value : undefined} compact />
+                <div className="rv-actions">
+                  <button type="button" className="primary" disabled={checking || !facts} onClick={() => facts && void check(facts, userValues(values), region)}>{siteDirty ? "바뀐 대지로 다시 검토" : "다시 검토"}</button>
+                </div>
+              </div>
+            )}
+
             {tab === "values" && (
               <div>
                 <p className="rv-help">모델에서 읽고 잰 값입니다. 모델에 없는 값(용도지역, 도로 등)을 채우거나 고친 뒤 다시 검토하세요.</p>
                 <ValuesForm values={values} onChange={editValue} disabled={checking} />
                 <div className="rv-actions">
                   <div className="rv-opt"><span>지역</span><RegionPicker value={region} onChange={r => { setRegion(r); setDirty(true); }} placement="up" /></div>
-                  <button type="button" className="primary" disabled={checking || !facts} onClick={() => facts && void check(facts, values, region)}>{dirty ? "수정값으로 다시 검토" : "다시 검토"}</button>
+                  <button type="button" className="primary" disabled={checking || !facts} onClick={() => facts && void check(facts, userValues(values), region)}>{dirty ? "수정값으로 다시 검토" : "다시 검토"}</button>
                 </div>
               </div>
             )}

@@ -128,7 +128,7 @@ RevitCortex MCP를 쓰는 경우 `add_shared_parameter`, `ifc_export_with_config
 - 면적은 평면 래스터(최대 1,500칸)로 재고 외벽 중심선으로 환산합니다. 정밀도(±㎡)를 함께 표시합니다. 처마 1 m 후퇴, 발코니 1.5 m 제외, 옥탑 1/8 규정은 반영하지 않았습니다.
 - 보행거리는 0.2 m 격자 16방향 최단경로로, 실제 직선 경로보다 최대 약 3% 길게 나옵니다(안전 측). 계단실 출입구에 닿는 지점까지 잽니다.
 - 정북 이격은 도로·공원 등에 접한 대지의 완화(시행령 §86 단서)를 반영하지 않았습니다.
-- 지구단위계획, 심의 조건, 방화구획, 피난계단 구조, 소방 등은 아직 범위 밖입니다.
+- 지구단위계획은 입력한(또는 AI로 읽은) 결정조서 값으로만 판정합니다(§9). 심의 조건, 방화구획, 피난계단 구조, 소방 등은 아직 범위 밖입니다.
 - 브라우저에서 여는 IFC는 300 MB 이하로 제한했습니다.
 
 ## 8. 개발
@@ -142,3 +142,80 @@ npx tsx scripts/make-bim-kit.ts    # Revit 키트·IDS 재생성
 ```
 
 새 규칙 추가: `lib/bim/law-parse.ts`에 조문 파서 → `lib/bim/rules.ts`에 `ruleXxx(c)` 추가 → 측정값이 더 필요하면 `analyze.ts`와 `BimFacts`에 추가 → 샘플 모델·테스트 갱신.
+
+## 9. 입지·용도 — 지도에서 대지 선택, 용도지역·지구·구역, 지구단위계획
+
+건물을 재기 전에 **"이 땅에 이 용도를 이 규모로 지을 수 있나"** 를 먼저 봅니다. 지도에서 필지를 누르면 토지이용계획을 읽어 지역·지구·구역을 채우고, 결과 맨 위 **입지·용도** 섹션에 판정이 나옵니다.
+
+### 9.1 조사와 선택
+
+| 참고 | 무엇을 가져왔나 |
+|---|---|
+| **브이월드(V-World) Open API** — 연속지적도, 토지이용계획속성(`getLandUseAttr`), 토지대장, 토지특성, 주소 좌표 | 필지 경계·PNU·지역지구 목록(포함/저촉/접합)·면적·도로접면. 국가 공식 데이터라 1순위 |
+| **cadastral-mcp** 등 국내 오픈소스 | 같은 브이월드 엔드포인트를 PNU로 묶어 쓰는 방식 확인 |
+| **토지이음(eum.go.kr)** 행위제한정보 | "용도지역별 건축가능 건축물" 표 형태 → 29개 용도 매트릭스 화면 |
+| **네덜란드 DSO/Omgevingswet** (STOP·TPOD) | 규칙을 **위치(werkingsgebied)에 묶어** 같은 엔진이 판정 — 우리는 필지 → 지역·지구·구역 → 별표·조례 조문으로 연결 |
+| **독일 XPlanung** | 지구단위계획(B-Plan)을 구조화된 값(건폐율·용적률·높이·허용용도)으로 표현 → `DistrictPlan` 타입 |
+| **OZFS**(Harvard GSD), **National Zoning Atlas**, **Urban Institute** | 필지 단위 zoning 데이터를 기계가 읽는 형식으로 — 지역별 규칙을 값으로 저장하고 근거를 함께 보관 |
+| **NBER** Bartik·Gupta·Milo(2024) | LLM이 조례 질문에 약 96% 맞히지만 맥락 오독이 남음 → AI 추출값은 **원문 인용 대조**를 통과한 것만 채택 |
+
+**결론.** 법령 내용은 코드에 쓰지 않고, (1) 대지 정보는 브이월드에서, (2) 허용 용도는 국토계획법 시행령 **별표 2~22 원문**(코퍼스 또는 법제처 API)을 파싱해서, (3) 용도지구·조례 제한은 **지역 도시·군계획조례** 조문에서, (4) 지구단위계획은 사용자가 넣거나 AI가 읽은 **결정조서 값**으로 판정합니다.
+
+### 9.2 흐름
+
+```
+지도 클릭/주소 검색 ─▶ /api/land/lookup ─▶ 브이월드: 필지(PNU·경계) + 토지이용계획 + 토지대장 + 토지특성
+                                          └▶ SiteInfo {zones[], area, roadSide, region}
+SiteInfo + IFC 측정값 ─▶ /api/bim/check ─▶ 입지·용도 룰 6개 + 지구단위계획 값으로 2A/2B/4B 기준 대체
+```
+
+키가 없으면 OpenStreetMap 지도 + 주소 검색으로 위치·지역(조례)만 잡고, 지역·지구는 토지이음 확인서를 보고 직접 고릅니다.
+
+### 9.3 검토 항목
+
+| ID | 항목 | 근거 | 판정 |
+|---|---|---|---|
+| Z-USE | 용도지역 안 건축 가능 여부 | 국토계획법 §76, 시행령 §71① → 별표 2~22 | 별표의 "건축할 수 있는/없는 건축물" 목록과 주용도 대조. 1호 목록 = 허용/불허, 2호(조례로 정하는) = 조례 확인, 면적·층수·"중 ○○" 조건 = 확인 필요 |
+| Z-DISTRICT | 용도지구 건축제한 | 건축법 §51(방화), 시행령 §72~82, 도시·군계획조례 | 방화지구 내화구조, 고도지구 최고높이, 경관·보호·특정용도제한지구 등은 조례 조문의 금지 용도·건폐율·층수와 대조 |
+| Z-AREA | 용도구역 | 개발제한구역법 §12, 도시공원법 §27, 국토계획법 §81 등 | 개발제한구역·도시자연공원구역·시가화조정구역은 원칙 불가(부적합), 그 밖은 확인 필요 |
+| Z-PLAN | 지구단위계획 | 국토계획법 §54 | 불허·허용용도, 건폐율, 용적률(기준·허용·상한 중 적용값), 최고높이·층수, 건축한계선. 입력한 값이 2A/2B/4B 기준을 대신함 |
+| Z-EDU | 교육환경보호구역 | 교육환경법 §9 | 절대보호구역 금지시설 = 부적합, 상대보호구역 = 심의 확인 |
+| Z-SITE | 대지 조건 | 건축법 §44, 국토계획법 §64·§84 | 맹지, 도시계획시설 저촉, 둘 이상 용도지역에 걸침 |
+
+대지 탭에는 **29개 용도 매트릭스**(이 땅에 지을 수 있는 용도)가 나옵니다. 용도지구 조례 때문에 바뀐 칸은 지구 이름을 함께 표시합니다.
+
+값 우선순위: **사용자 입력 > 토지이용계획 > IFC 속성**. 토지대장 면적은 모델에 대지면적이 없을 때만 쓰고, 1% 넘게 다르면 알려 줍니다.
+
+### 9.4 파일
+
+| 파일 | 역할 |
+|---|---|
+| `lib/land/vworld.ts` | 브이월드 호출(필지·토지이용계획·토지대장·토지특성·지오코딩) |
+| `lib/land/zones.ts` | 지역·지구·구역 이름 분류, 시행령 §71① → 별표 연결 |
+| `lib/land/uses.ts` | 별표 1 용도 29종, "별표 1 제N호의 ○○ 중 ×× (… 제외)" 목록 파서와 대조 |
+| `lib/land/appendix.ts` | 별표 본문: 코퍼스 → 법제처 API(실시간) → 없으면 원문 링크 |
+| `lib/land/rules.ts` | Z-USE·Z-DISTRICT·Z-AREA·Z-PLAN·Z-EDU·Z-SITE, 용도 매트릭스 |
+| `lib/land/plan-extract.ts` | 결정조서 PDF/텍스트 → AI 추출 → 원문 인용 대조 |
+| `components/land/SiteMap.tsx`, `SitePanel.tsx` | Leaflet 지도(브이월드 배경·지적도·용도지역 WMS), 대지 패널 |
+| `app/api/land/*` | `config`, `lookup`, `uses`, `plan`, `check`, `region` |
+
+### 9.5 설정
+
+| 환경 변수 | 용도 |
+|---|---|
+| `VWORLD_API_KEY` | 브이월드 데이터 API 키(서버 전용). [브이월드](https://www.vworld.kr) 오픈API에서 발급 |
+| `VWORLD_DOMAIN` | 키 발급 때 등록한 서비스 URL(예: `https://buildlex-ai.vercel.app`) |
+| `VWORLD_MAP_KEY` | (선택) 지도 타일·WMS용 키. 브라우저에 노출되므로 도메인 제한 키를 쓰세요. 없으면 OpenStreetMap |
+| `LAW_API_OC` | 별표 2~22 본문(실시간 조회 또는 코퍼스 빌드). 없으면 Z-USE는 '확인 필요' + 원문 링크 |
+| `GEMINI_API_KEY` | 지구단위계획 결정조서 AI 읽기 |
+
+브이월드 서버는 국내에 있으니 Vercel 함수 지역을 **icn1(서울)** 로 두면 빠릅니다(프로젝트 Settings → Functions).
+
+### 9.6 한계
+
+- 별표의 세부 조건(면적·층수·"중 ○○")은 모델의 주용도·연면적으로만 판단하고, 애매하면 '확인 필요'로 둡니다.
+- 조례의 완화 단서(위원회 심의 등), 다른 법령의 지역·지구(문화재·군사·농지 등)는 목록만 보여 줍니다.
+- 지구단위계획 결정조서는 지자체마다 형식이 달라 AI 추출값이 비어 있을 수 있습니다. 비어 있는 칸은 직접 넣으세요.
+- 테스트는 브이월드 응답을 흉내 낸 고정 데이터로 돌립니다(`tests/land.test.ts`). 실제 키로 한 번 확인하세요.
+
+출처: [OZFS(Harvard GSD)](https://research.gsd.harvard.edu/vibelab/2025/08/19/open-zoning-feed-specification-ozfs), [Bartik·Gupta·Milo, NBER(2024)](https://conference.nber.org/conf_papers/f205452/f205452.pdf), [National Zoning Atlas](https://www.zoningatlas.org/about), [Urban Institute — Automating Zoning Data Collection](https://www.urban.org/research/publication/automating-zoning-data-collection), [IPLO — 디지털 omgevingsplan](https://iplo.nl/regelgeving/instrumenten/omgevingsplan/digitaal-vormgeven-omgevingsplan/), [Bayern XPlanung Leitfaden](https://bauministerium.bayern.de/assets/stmi/miniwebs/digitale_planung/xplanung_leitfaden_1.pdf), [cadastral-mcp](https://glama.ai/mcp/servers/chanjong-ui/cadastral-mcp/tools/get_land_use_plan_by_pnu), [V-World API 샘플](https://github.com/V-world/V-world_API_sample), [토지이음](https://www.eum.go.kr)

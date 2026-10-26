@@ -20,6 +20,9 @@ import type { Chunk, Region } from "../types.ts";
 import { asBool, useCategory, type UseCategory } from "./convention.ts";
 import * as L from "./law-parse.ts";
 import type { BimFacts, BimIssue, BimReviewResult, BimRuleResult, ElemRef, Severity, StoreyFact, Vec3 } from "./types.ts";
+import { landRules, planFar } from "../land/rules.ts";
+import { siteRegion, siteToValues } from "../land/site.ts";
+import type { DistrictPlan, SiteInfo } from "../land/types.ts";
 
 const chunk = (id: string): Chunk | undefined => loadNational().byId.get(id);
 const cites = (...xs: [string, string?][]): Citation[] => xs.map(([id, q]) => { const c = chunk(id); return c ? cite(c, q) : null; }).filter((x): x is Citation => !!x);
@@ -518,14 +521,65 @@ function ruleParking(c: Ctx): BimRuleResult {
 
 const VALUE_SECTION: Record<string, BimRuleResult["section"]> = { "2A": "대지·밀도", "2B": "대지·밀도", "3A": "대지·밀도", "3B": "주차·조경", "3C": "주차·조경", "4B": "높이·일조" };
 
-export async function reviewBim(input: { facts: BimFacts; values?: ProjectValues; region?: string }): Promise<BimReviewResult> {
-  const f = input.facts;
+/** Values precedence: user edits > 토지이용계획(site) > IFC. The 토지대장 area fills 대지면적 only when the model has none. */
+export function mergeValues(f: BimFacts, site: SiteInfo | undefined, user: ProjectValues | undefined): ProjectValues {
   const merged: ProjectValues = { ...factsToValues(f) };
-  for (const [k, val] of Object.entries(input.values || {}) as [FieldKey, FieldValue][]) {
+  if (site) for (const [k, val] of Object.entries(siteToValues(site)) as [FieldKey, FieldValue][]) {
+    if ((k === "대지면적" || k === "전면도로폭") && merged[k]) {
+      const a = Number(merged[k]!.value), b = Number(val.value);
+      if (k === "대지면적" && Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) / b > 0.01) merged[k] = { ...merged[k]!, raw: `${merged[k]!.raw} (토지대장 ${fmt(b)}㎡와 다름 — 확인)`, confidence: "LOW" };
+      continue;
+    }
+    merged[k] = val;
+  }
+  for (const [k, val] of Object.entries(user || {}) as [FieldKey, FieldValue][]) {
     if (val && val.value !== "" && val.value !== undefined) merged[k] = { ...val, source: "user", confidence: "HIGH" };
     else delete merged[k];
   }
-  const region = input.region ? listRegions().find(r => r.key === input.region) || resolveRegion(input.region) : resolveRegion(str(merged, "대지위치"));
+  return merged;
+}
+
+/** 지구단위계획 values replace the zone-wide 건폐율·용적률·높이 limits (국토계획법 제54조). */
+function applyPlan(rules: BimRuleResult[], plan: DistrictPlan | undefined, v: ProjectValues): void {
+  if (!plan) return;
+  const a54 = loadNational().byId.get("국토의계획및이용에관한법률#54");
+  const planCite = a54 ? [cite(a54, a54.text.split("\n")[0])] : [];
+  const set = (id: string, limit: number | undefined, label: string, provided: number | undefined, unit: string) => {
+    const r = rules.find(x => x.check_id === id);
+    if (!r || limit === undefined) return;
+    const status: CheckStatus = provided === undefined ? "UNCLEAR" : provided > limit + 1e-9 ? "FAIL" : "PASS";
+    r.requirement = `지구단위계획 ${label} ${fmt(limit)}${unit} 이하 (용도지역·조례 기준 대신 적용)`;
+    r.threshold = { op: "<=", value: limit, unit };
+    r.status = status;
+    r.tier = 3;
+    r.citations = [...planCite, ...r.citations];
+    r.notes = [`지구단위계획구역 — 계획 기준(${plan.source === "ai" ? "결정조서 AI 추출" : "직접 입력"})으로 판정했습니다. 용도지역 기준: ${r.notes.join(" ").slice(0, 120) || "-"}`];
+    r.issues = status === "FAIL" ? [{ id: `${id}-1`, rule_id: id, status: "FAIL", severity: "major", title: `${r.title}: 지구단위계획 기준 초과`, detail: `${r.provided?.text || ""} > ${label} ${fmt(limit)}${unit}`, refs: [], measured: r.provided?.text, required: `≤ ${fmt(limit)}${unit}` }] : [];
+  };
+  set("2A", plan.bcr, "건폐율", rules.find(x => x.check_id === "2A")?.provided?.value, "%");
+  const pf = planFar(plan);
+  set("2B", pf.value, pf.label, rules.find(x => x.check_id === "2B")?.provided?.value, "%");
+  const h4 = rules.find(x => x.check_id === "4B");
+  if (h4 && (plan.height?.maxM !== undefined || plan.height?.maxFloors !== undefined)) {
+    const h = num(v, "높이"), fl = num(v, "지상층수");
+    const over = (plan.height?.maxM !== undefined && h !== undefined && h > plan.height.maxM + 1e-9) || (plan.height?.maxFloors !== undefined && fl !== undefined && fl > plan.height.maxFloors);
+    const known = (plan.height?.maxM === undefined || h !== undefined) && (plan.height?.maxFloors === undefined || fl !== undefined);
+    h4.status = over ? "FAIL" : known ? "PASS" : "UNCLEAR";
+    h4.requirement = `지구단위계획 ${[plan.height?.maxM !== undefined ? `최고높이 ${plan.height.maxM}m` : "", plan.height?.maxFloors !== undefined ? `최고 ${plan.height.maxFloors}층` : ""].filter(Boolean).join(", ")} 이하`;
+    h4.provided = { value: h ?? 0, unit: "m", text: `높이 ${h !== undefined ? fmt(h) + "m" : "?"}, 지상 ${fl ?? "?"}층` };
+    h4.tier = 3;
+    h4.citations = [...planCite, ...h4.citations];
+    h4.notes = ["지구단위계획 높이 기준으로 판정했습니다."];
+    h4.reviewer = undefined;
+    h4.issues = over ? [{ id: "4B-1", rule_id: "4B", status: "FAIL", severity: "major", title: "지구단위계획 높이·층수 초과", detail: `${h4.provided.text} > ${h4.requirement}`, refs: [] }] : [];
+    h4.checked = 1;
+  }
+}
+
+export async function reviewBim(input: { facts: BimFacts; values?: ProjectValues; region?: string; site?: SiteInfo; live?: boolean }): Promise<BimReviewResult> {
+  const f = input.facts;
+  const merged = mergeValues(f, input.site, input.values);
+  const region = input.region ? listRegions().find(r => r.key === input.region) || resolveRegion(input.region) : siteRegion(input.site, str(merged, "대지위치"));
   const c = context(f, merged, region);
 
   // Site-level checks through the plan-review skills.
@@ -542,9 +596,11 @@ export async function reviewBim(input: { facts: BimFacts; values?: ProjectValues
     return { ...it, notes, section: VALUE_SECTION[it.check_id] || "대지·밀도", source: "values" as const, issues, checked: it.status === "NOT_APPLICABLE" ? 0 : 1 };
   });
 
+  applyPlan(valueRules, input.site?.plan, merged);
   const bimRules = [ruleNorth, ruleEgressDistance, ruleTwoStairs, ruleStairWidth, ruleStairStep, ruleLanding, ruleGuardSides, ruleCorridor, ruleCeiling, ruleWindows, ruleGuards, ruleDoors, ruleParking].map(fn => fn(c));
-  const order = ["대지·밀도", "높이·일조", "피난·계단", "복도·실", "채광·환기", "난간·출입구", "주차·조경"];
-  const rules = [...valueRules, ...bimRules].sort((a, b) => order.indexOf(a.section) - order.indexOf(b.section));
+  const zoning = await landRules({ site: input.site, values: merged, region, fireResistive: c.fire.value, live: input.live, planDensityElsewhere: true });
+  const order = ["입지·용도", "대지·밀도", "높이·일조", "피난·계단", "복도·실", "채광·환기", "난간·출입구", "주차·조경"];
+  const rules = [...zoning, ...valueRules, ...bimRules].sort((a, b) => order.indexOf(a.section) - order.indexOf(b.section));
 
   const by_status = { PASS: 0, FAIL: 0, UNCLEAR: 0, NOT_APPLICABLE: 0 } as Record<CheckStatus, number>;
   const by_confidence = { HIGH: 0, MEDIUM: 0, LOW: 0 } as Record<Confidence, number>;

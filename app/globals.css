@@ -402,3 +402,61 @@ button.badge:hover { border-color: var(--accent); color: var(--accent); }
   .bim-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .bim-work { padding: 10px 8px 30px; }
 }
+
+/* ── 대지 선택 · 토지이용계획 (components/land) ── */
+.bim-optional { font-size: 12px; font-weight: 500; color: var(--ink-3); margin-left: 6px; }
+.site-panel { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.site-search { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.site-search input { flex: 1 1 220px; min-width: 0; height: 36px; border: 1px solid var(--line-strong); border-radius: 9px; padding: 0 10px; background: var(--surface); }
+.site-search .ghost { border-color: var(--line-strong); height: 36px; }
+.site-mode { font-size: 11.5px; padding: 3px 8px; border-radius: 999px; background: var(--surface-3); color: var(--ink-3); white-space: nowrap; }
+.site-mode.on { background: var(--ok-soft); color: var(--ok); }
+.site-map { height: 340px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: var(--surface-2); z-index: 0; }
+.site-panel.compact .site-map { height: 240px; }
+.site-map-loading { display: grid; place-items: center; color: var(--ink-3); font-size: 13px; }
+.site-map .leaflet-container { font-family: var(--font); }
+.site-tip { margin: 0; }
+.site-info { display: flex; flex-direction: column; gap: 10px; }
+.site-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px 12px; font-size: 13px; }
+.site-facts > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.site-facts span { font-size: 11.5px; color: var(--ink-3); }
+.site-facts b { font-weight: 600; word-break: break-all; }
+.site-facts .mono { font-family: var(--mono); font-size: 12px; }
+.site-region { grid-column: 1 / -1; }
+.site-info h4 { margin: 4px 0 0; font-size: 13.5px; }
+.site-info h4 small { font-weight: 500; color: var(--ink-3); margin-left: 6px; }
+.site-zones { display: flex; flex-direction: column; gap: 6px; }
+.site-zone-row { display: grid; grid-template-columns: 84px 1fr; gap: 8px; align-items: start; }
+.site-zone-kind { font-size: 12px; color: var(--ink-3); padding-top: 3px; }
+.site-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.site-chip { display: inline-flex; align-items: center; gap: 4px; }
+.site-chip em { font-style: normal; font-size: 10.5px; color: var(--warn); }
+.site-chip button { border: 0; background: none; color: var(--ink-3); padding: 0 2px; line-height: 1; font-size: 14px; }
+.site-chip button:hover { color: var(--err); }
+.site-chip.k-용도지역 { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent); }
+.site-chip.k-용도지구 { background: color-mix(in srgb, var(--decree) 12%, transparent); color: var(--decree); }
+.site-chip.k-용도구역 { background: var(--err-soft); color: var(--err); }
+.site-chip.k-지구단위계획 { background: var(--warn-soft); color: var(--warn); }
+.site-add { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.site-add select { height: 32px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); padding: 0 8px; font-size: 13px; max-width: 100%; }
+.site-plan, .site-matrix { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+.site-plan summary, .site-matrix summary { cursor: pointer; font-weight: 650; font-size: 13.5px; }
+.site-matrix summary small { font-weight: 500; color: var(--ink-3); }
+.site-plan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 8px 0; }
+.site-plan-grid label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--ink-2); }
+.site-plan-grid label.wide { grid-column: 1 / -1; }
+.site-plan-grid input, .site-plan-grid select { height: 32px; border: 1px solid var(--line-strong); border-radius: 7px; padding: 0 8px; background: var(--surface); font-size: 13px; min-width: 0; }
+.site-plan-ai textarea { width: 100%; border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px; background: var(--surface); font-size: 13px; resize: vertical; }
+.site-plan-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+.site-plan-actions .ghost { border-color: var(--line-strong); }
+.site-matrix-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px 10px; margin: 8px 0; font-size: 12.5px; }
+.site-use { display: flex; gap: 6px; align-items: center; padding: 3px 0; min-width: 0; }
+.site-use span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.site-use-via { color: var(--ord); font-size: 11px; }
+.site-link { font-size: 12.5px; color: var(--accent); }
+.site-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.site-actions .ghost { text-decoration: none; border-color: var(--line); }
+@media (max-width: 640px) {
+  .site-map { height: 280px; }
+  .site-zone-row { grid-template-columns: 1fr; gap: 2px; }
+}

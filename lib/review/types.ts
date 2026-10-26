@@ -77,7 +77,7 @@ export type FieldValue = {
   raw?: string;
   sheet_id?: string;
   page?: number;
-  source: "text" | "vision" | "user" | "bim";
+  source: "text" | "vision" | "user" | "bim" | "land";
   confidence: Confidence;
 };
 export type ProjectValues = Partial<Record<FieldKey, FieldValue>>;
