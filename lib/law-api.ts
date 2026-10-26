@@ -38,11 +38,13 @@ async function getJSON(params: Record<string, string>, timeoutMs = 7000): Promis
 export const lawApiEnabled = () => !!OC();
 
 /** 별표 본문 by 법령MST + 별표 번호 ("별표 1", "별표 1의2"). */
-export async function fetchAppendix(mst: string, articleNo: string): Promise<string | null> {
+export async function fetchAppendix(mst: string, articleNo: string, timeoutMs = 7000): Promise<string | null> {
   if (!lawApiEnabled() || !mst) return null;
   const m = articleNo.match(/별표\s*(\d+)(?:의(\d+))?/);
   if (!m) return null;
-  const data = await getJSON({ endpoint: "lawService.do", target: "law", MST: mst });
+  // The whole 법령 (with every 별표) comes back in one response — large for 시행령s, so callers
+  // that only need a 별표 pass a longer timeout. The response is cached for all its 별표.
+  const data = await getJSON({ endpoint: "lawService.do", target: "law", MST: mst }, timeoutMs);
   const units = arr(rec(rec(data["법령"])["별표"])["별표단위"] as J | J[] | undefined);
   const unit = units.map(rec).find(u => Number(txt(u["별표번호"])) === Number(m[1]) && Number(txt(u["별표가지번호"]) || 0) === Number(m[2] || 0) && /별표|^$/.test(txt(u["별표구분"])));
   const body = unit ? strip(txt(unit["별표내용"])) : "";

@@ -85,6 +85,19 @@ docs/refresh-corpus.workflow.yml       매주 코퍼스 자동 갱신 (.github/w
 - 흐름: `lib/review/flows/plan-review.ts`, API: `app/api/review/{manifest,sheet-review,compliance,draft}`
 - 시험 도면: `python3 scripts/make-test-drawings.py` (가상 도면 2종, 정답값 `tests/drawings/*.truth.json`), `npm test`
 
+## BIM 법규검토 (/bim)
+
+Revit에서 내보낸 **IFC 모델**을 브라우저에서 3D로 보고, 국내 법규로 **요소 단위** 자동 검토합니다. 자세한 조사·설계·Revit 설정은 [docs/bim-review.md](docs/bim-review.md)를 보세요.
+
+- **엔진**: Solibri 방식 룰셋(룰 템플릿 × 요소 → 이슈·심각도·BCF). 기준값은 코퍼스의 현행 조문에서 파싱하고, 조례는 지역별로 자동 적용합니다.
+- **국내 적용**: 싱가포르 CORENET X(IFC-SG)처럼 `BuildLex_KR` 속성 세트 + Revit 공유 매개변수·IFC 내보내기 설정 + IDS 1.0 정보 요건(`public/bim/`).
+- **3D 뷰어**: web-ifc(That Open Engine) + three.js, Web Worker에서 해석(파일은 서버로 보내지 않음). 층 분리·단면·X-ray·실 표시, 문제 요소 강조, 보행거리 히트맵과 최단 경로, 정북 일조 사선.
+- **검토 항목 18개**: 건폐율·용적률·접도·조경·주차대수, 정북 일조(3D), 직통계단 보행거리·2개소, 계단 유효너비·단 치수·계단참·양옆 난간, 복도 유효너비, 거실 반자높이, 채광·환기 창, 옥상·노대 난간, 주출입구 유효폭, 주차구획 크기.
+- **입지·용도(지도에서 대지 선택)**: 지도에서 필지를 누르면 브이월드 토지이용계획으로 용도지역·지구·구역을 채우고, 용도지역 허용 용도(시행령 별표 2~22 원문 파싱), 용도지구 조례 제한, 개발제한구역 등 용도구역, 지구단위계획(결정조서 값 입력 또는 AI 읽기 + 원문 대조), 교육환경보호구역, 맹지·도시계획시설 저촉을 검토합니다. 29개 용도 "이 땅에 지을 수 있는 용도" 표도 보여 줍니다. 코드: `lib/land/*`, `components/land/*`, API `app/api/land/*`. 설명은 [docs/bim-review.md §9](docs/bim-review.md).
+- **내보내기**: BCF 2.1(.bcfzip — Revit·Solibri·Navisworks에서 문제 요소로 이동), 보완요구서(.md), 결과 JSON.
+- 코드: `lib/bim/*`(읽기·측정·법령 파싱·룰), `components/bim/*`(워커·뷰어·화면·BCF), API `app/api/bim/check`
+- 샘플: `public/bim/sample-a-compliant.ifc`(근생, 적합), `sample-b-violations.ifc`(공동주택, 위반 14건) — `python3 scripts/make-test-ifc.py`
+
 ## 실행
 
 ```bash
@@ -112,6 +125,7 @@ npm test && npm run eval
    - `GEMINI_MODEL`
    - `LAW_API_OC`
    - (선택) `GEMINI_FAST_MODEL`
+   - (선택, 지도 대지 선택) `VWORLD_API_KEY`, `VWORLD_DOMAIN`(키에 등록한 서비스 URL), `VWORLD_MAP_KEY`. 함수 지역은 `vercel.json`에서 `icn1`(서울)로 고정했습니다.
 3. `/api/ask`는 `maxDuration = 60`입니다. 자동 재검색 모드는 시간이 더 걸릴 수 있으니, 가능하면 Pro 플랜에서 더 긴 실행 시간을 쓰세요.
 4. 코퍼스 파일은 `next.config.ts`의 `outputFileTracingIncludes`로 서버 함수에 포함됩니다(약 45MB).
 

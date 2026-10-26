@@ -13,7 +13,7 @@ const LABEL: Partial<Record<FieldKey, string>> = {
   지구단위계획: "지구단위계획·택지지구", 건축사날인: "건축사 날인",
 };
 const TEXT_FIELDS = new Set<FieldKey>(["대지위치", "용도지역", "용도지구", "주용도", "건축사날인", "구조"]);
-const SRC = { text: "텍스트", vision: "이미지", user: "수정" } as const;
+const SRC = { text: "텍스트", vision: "이미지", user: "수정", bim: "BIM", land: "토지이용계획" } as const;
 
 export default function ValuesForm({ values, onChange, disabled }: { values: ProjectValues; onChange: (k: FieldKey, v: FieldValue | undefined) => void; disabled?: boolean }) {
   const set = (k: FieldKey, raw: string | boolean) => {

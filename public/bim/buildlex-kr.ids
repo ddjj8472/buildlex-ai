@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ids:ids xmlns:ids="http://standards.buildingsmart.org/IDS" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://standards.buildingsmart.org/IDS http://standards.buildingsmart.org/IDS/1.0/ids.xsd">
+  <ids:info>
+    <ids:title>BuildLex_KR — BIM 법규검토 정보 요건</ids:title>
+    <ids:version>1.0</ids:version>
+    <ids:description>BuildLex AI BIM 법규검토(/bim)가 국내 건축법규를 자동 검토하려면 IFC에 있어야 하는 정보입니다.</ids:description>
+    <ids:date>2026-10-25</ids:date>
+    <ids:purpose>Code compliance checking (Korea)</ids:purpose>
+  </ids:info>
+  <ids:specifications>
+    <ids:specification name="대지 정보" ifcVersion="IFC2X3 IFC4" description="용도지역·대지면적으로 건폐율·용적률·일조 기준을 정합니다.">
+      <ids:applicability minOccurs="0" maxOccurs="unbounded"><ids:entity><ids:name><ids:simpleValue>IFCSITE</ids:simpleValue></ids:name></ids:entity></ids:applicability>
+      <ids:requirements><ids:property dataType="IFCLABEL" cardinality="required" instructions="지번 주소(시·군·구까지 있으면 조례 자동 적용)"><ids:propertySet><ids:simpleValue>BuildLex_KR</ids:simpleValue></ids:propertySet><ids:baseName><ids:simpleValue>대지위치</ids:simpleValue></ids:baseName></ids:property><ids:property dataType="IFCLABEL" cardinality="required" instructions="국토계획법 용도지역, 예: 제2종일반주거지역"><ids:propertySet><ids:simpleValue>BuildLex_KR</ids:simpleValue></ids:propertySet><ids:baseName><ids:simpleValue>용도지역</ids:simpleValue></ids:baseName></ids:property><ids:property dataType="IFCAREAMEASURE" cardinality="required" instructions="대지면적(㎡). 없으면 대지경계선(IfcSite FootPrint)으로 계산"><ids:propertySet><ids:simpleValue>BuildLex_KR</ids:simpleValue></ids:propertySet><ids:baseName><ids:simpleValue>대지면적</ids:simpleValue></ids:baseName></ids:property></ids:requirements>
+    </ids:specification>
+    <ids:specification name="건축물 주용도" ifcVersion="IFC2X3 IFC4" description="건축법 시행령 별표 1 용도에 따라 계단·복도·채광 기준이 달라집니다.">
+      <ids:applicability minOccurs="0" maxOccurs="unbounded"><ids:entity><ids:name><ids:simpleValue>IFCBUILDING</ids:simpleValue></ids:name></ids:entity></ids:applicability>
+      <ids:requirements><ids:property dataType="IFCLABEL" cardinality="required" instructions="건축법 시행령 별표 1 용도, 예: 공동주택(아파트), 제2종 근린생활시설"><ids:propertySet><ids:simpleValue>BuildLex_KR</ids:simpleValue></ids:propertySet><ids:baseName><ids:simpleValue>주용도</ids:simpleValue></ids:baseName></ids:property></ids:requirements>
+    </ids:specification>
+    <ids:specification name="실 이름과 용도" ifcVersion="IFC2X3 IFC4" description="거실·복도·계단실 구분은 보행거리·복도 폭·반자높이·채광 검토의 전제입니다.">
+      <ids:applicability minOccurs="0" maxOccurs="unbounded"><ids:entity><ids:name><ids:simpleValue>IFCSPACE</ids:simpleValue></ids:name></ids:entity></ids:applicability>
+      <ids:requirements><ids:attribute cardinality="required" instructions="Revit 룸 이름"><ids:name><ids:simpleValue>LongName</ids:simpleValue></ids:name></ids:attribute><ids:property dataType="IFCLABEL" cardinality="optional" instructions="없으면 실 이름으로 추정합니다."><ids:propertySet><ids:simpleValue>BuildLex_KR</ids:simpleValue></ids:propertySet><ids:baseName><ids:simpleValue>실용도</ids:simpleValue></ids:baseName><ids:value><xs:restriction base="xs:string"><xs:enumeration value="거실"/><xs:enumeration value="복도"/><xs:enumeration value="계단실"/><xs:enumeration value="화장실"/><xs:enumeration value="주차"/><xs:enumeration value="설비"/><xs:enumeration value="창고"/><xs:enumeration value="발코니"/><xs:enumeration value="홀"/><xs:enumeration value="승강기"/><xs:enumeration value="조경"/><xs:enumeration value="기타"/></xs:restriction></ids:value></ids:property></ids:requirements>
+    </ids:specification>
+    <ids:specification name="외벽 구분" ifcVersion="IFC2X3 IFC4" description="건축면적·바닥면적을 외벽 중심선으로 환산할 때 씁니다.">
+      <ids:applicability minOccurs="0" maxOccurs="unbounded"><ids:entity><ids:name><ids:simpleValue>IFCWALL</ids:simpleValue></ids:name></ids:entity></ids:applicability>
+      <ids:requirements><ids:property dataType="IFCBOOLEAN" cardinality="required" instructions="Revit 벽 유형의 '기능 = 외부'"><ids:propertySet><ids:simpleValue>Pset_WallCommon</ids:simpleValue></ids:propertySet><ids:baseName><ids:simpleValue>IsExternal</ids:simpleValue></ids:baseName></ids:property></ids:requirements>
+    </ids:specification>
+    <ids:specification name="계단 단 치수" ifcVersion="IFC2X3 IFC4" description="단높이·단너비 검토(학교·공동주택).">
+      <ids:applicability minOccurs="0" maxOccurs="unbounded"><ids:entity><ids:name><ids:simpleValue>IFCSTAIRFLIGHT</ids:simpleValue></ids:name></ids:entity></ids:applicability>
+      <ids:requirements><ids:property dataType="IFCPOSITIVELENGTHMEASURE" cardinality="required"><ids:propertySet><ids:simpleValue>Pset_StairFlightCommon</ids:simpleValue></ids:propertySet><ids:baseName><ids:simpleValue>RiserHeight</ids:simpleValue></ids:baseName></ids:property><ids:property dataType="IFCPOSITIVELENGTHMEASURE" cardinality="required"><ids:propertySet><ids:simpleValue>Pset_StairFlightCommon</ids:simpleValue></ids:propertySet><ids:baseName><ids:simpleValue>TreadLength</ids:simpleValue></ids:baseName></ids:property></ids:requirements>
+    </ids:specification>
+    <ids:specification name="문 폭" ifcVersion="IFC2X3 IFC4" description="주출입구 통과 유효폭 검토.">
+      <ids:applicability minOccurs="0" maxOccurs="unbounded"><ids:entity><ids:name><ids:simpleValue>IFCDOOR</ids:simpleValue></ids:name></ids:entity></ids:applicability>
+      <ids:requirements><ids:attribute cardinality="required" instructions="문 폭(Revit '폭')"><ids:name><ids:simpleValue>OverallWidth</ids:simpleValue></ids:name></ids:attribute></ids:requirements>
+    </ids:specification>
+    <ids:specification name="난간 높이" ifcVersion="IFC2X3 IFC4" description="옥상·노대 난간 높이 검토.">
+      <ids:applicability minOccurs="0" maxOccurs="unbounded"><ids:entity><ids:name><ids:simpleValue>IFCRAILING</ids:simpleValue></ids:name></ids:entity></ids:applicability>
+      <ids:requirements><ids:property dataType="IFCPOSITIVELENGTHMEASURE" cardinality="required"><ids:propertySet><ids:simpleValue>Pset_RailingCommon</ids:simpleValue></ids:propertySet><ids:baseName><ids:simpleValue>Height</ids:simpleValue></ids:baseName></ids:property></ids:requirements>
+    </ids:specification>
+  </ids:specifications>
+</ids:ids>
