@@ -101,6 +101,12 @@ export function parseRefs(line: string): UseRef[] {
     if (cat.no) out.push({ no: cat.no, name, exclude: [], crossRef: `별표 ${x[1]} ${x[2].replace(/\s+/g, " ").trim()}` });
   }
   line = line.replace(XREF, " ");
+  // "제21호가목부터 라목까지의 규정에 따른 시설" → "제21호의 동물 및 식물 관련 시설 중 가목부터 라목까지"
+  line = line.replace(/제(\d+)호(?:의(\d+))?\s*([가-하])목부터\s*([가-하])목까지의?\s*(?:규정에\s*)?(?:따른|해당하는)\s*(?:시설|건축물|것)?/g, (_m, no: string, sub: string | undefined, a: string, b: string) => {
+    const key = no + (sub ? `의${sub}` : "");
+    const cat = USE_CATEGORIES.find(c => c.no === key);
+    return `제${key}호의 ${cat?.name || ""} 중 ${a}목부터 ${b}목까지 `;
+  });
   const re = /제(\d+)호(?:의(\d+))?(?:\s*([가-하])목)?(?:의|에\s*따른)\s*/g;
   const hits = [...line.matchAll(re)];
   for (let i = 0; i < hits.length; i++) {

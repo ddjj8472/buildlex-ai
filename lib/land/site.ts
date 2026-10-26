@@ -15,7 +15,7 @@ export function frontRoad(site: SiteInfo): { width?: number; text?: string; land
   const roads = site.zones.filter(z => z.kind === "도시계획시설" && z.roadWidth && z.relation === "접합");
   if (roads.length) {
     const best = roads.slice().sort((a, b) => b.roadWidth![0] - a.roadWidth![0])[0];
-    return { width: best.roadWidth![0], text: `${best.name} 접합(도시계획도로, 폭 하한 ${best.roadWidth![0]}m)`, landlocked: false };
+    return { width: best.roadWidth![0], text: `${best.name} 접함(도시계획도로, 폭 하한 ${best.roadWidth![0]}m)`, landlocked: false };
   }
   const rs = roadSideWidth(site.roadSide);
   return { width: rs.min, text: rs.label ? `토지특성 도로접면: ${rs.label}` : undefined, landlocked: rs.landlocked };

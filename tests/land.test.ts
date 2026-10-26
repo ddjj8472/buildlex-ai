@@ -109,6 +109,9 @@ test("use lists: 별표 format (allow / deny, flattened text), ordinance lists, 
   assert.equal(xr[0].crossRef, "별표 4 제2호차목 및 카목");
   assert.equal(matchRef(useOf("공장(인쇄업)"), xr[0]).match, "partial");
   assert.equal(parseRefs("「건축법 시행령」 별표 1 제17호의 공장")[0].crossRef, undefined);
+  const [rg] = parseRefs("「건축법 시행령」 별표 1 제21호가목부터 라목까지의 규정에 따른 시설");
+  assert.equal(rg.no, "21");
+  assert.equal(matchRef(useOf("동물 및 식물 관련 시설"), rg).match, "partial");
   const [pv] = parseRefs("제15호의 숙박시설. 다만, 위원회 심의를 거친 것은 그러하지 아니하다.");
   assert.equal(pv.proviso, true);
   assert.equal(matchRef(useOf("숙박시설(일반숙박시설)"), pv).match, "partial");
