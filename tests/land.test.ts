@@ -112,6 +112,11 @@ test("use lists: 별표 format (allow / deny, flattened text), ordinance lists, 
   const [rg] = parseRefs("「건축법 시행령」 별표 1 제21호가목부터 라목까지의 규정에 따른 시설");
   assert.equal(rg.no, "21");
   assert.equal(matchRef(useOf("동물 및 식물 관련 시설"), rg).match, "partial");
+  const odd = parseRefs("「건축법 시행령」 별표 1 제3호가목부터 바목까지 및 사목(공중화장실ㆍ대피소만 해당한다)");
+  assert.ok(odd.some(r => r.no === "3"));
+  assert.equal(matchItem(useOf("제1종 근린생활시설(소매점)"), { part: 1, label: "나", text: "", refs: odd }).match, "partial");
+  // "것." is not an item label (가…하, 거…허 only).
+  assert.equal(parseUseTable("1. 건축할 수 있는 건축물\n가. 「건축법 시행령」 별표 1 제1호의 단독주택으로서 2층 이하인 것. 다만, 조례로 정하는 것은 그러하지 아니하다.", "allow").items.length, 1);
   const [pv] = parseRefs("제15호의 숙박시설. 다만, 위원회 심의를 거친 것은 그러하지 아니하다.");
   assert.equal(pv.proviso, true);
   assert.equal(matchRef(useOf("숙박시설(일반숙박시설)"), pv).match, "partial");

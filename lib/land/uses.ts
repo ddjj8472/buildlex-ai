@@ -74,15 +74,20 @@ export type UseRef = {
   proviso?: boolean;
   /** "별표 4 제2호차목 및 카목의 공장": the item points at another 별표 of the same decree. */
   crossRef?: string;
+  /** Category found but the wording around it was not understood — only ever a partial match. */
+  loose?: boolean;
 };
 export type UseItem = { part: 1 | 2; label: string; text: string; refs: UseRef[] };
 export type UseTable = { mode: "allow" | "deny"; items: UseItem[]; headers: { part: 1 | 2; text: string }[] };
+
+/** Item / 목 labels: 가…하, then 거…허 for long lists (not every syllable between 가 and 하). */
+const MOK = "[가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허]";
 
 /** Put each "1." / "가." / "1)" item on its own line (API text sometimes arrives flattened). */
 export function unflatten(text: string): string {
   return text
     .replace(/\r/g, "")
-    .replace(/[ \t]+(?=(?:[1-9]\d?\.|[가-하]\.|\d{1,2}\))\s)/g, "\n")
+    .replace(new RegExp(`[ \\t]+(?=(?:[1-9]\\d?\\.|${MOK}\\.|\\d{1,2}\\))\\s)`, "g"), "\n")
     .split("\n").map(l => l.trim()).filter(Boolean).join("\n");
 }
 
@@ -91,6 +96,7 @@ const WORDS = (s: string) => s.split(/\s*(?:[,ㆍ·및]|와|과|또는|그밖에
 /** Read the use references out of one item line. */
 export function parseRefs(line: string): UseRef[] {
   const out: UseRef[] = [];
+  const original = line;
   // References to another 별표 of the same decree ("별표 4 제2호차목 및 카목의 공장") — not to
   // 「건축법 시행령」 별표 1. The category comes from the noun that follows; the detail lives in
   // the other 별표, so a match is only ever partial.
@@ -102,12 +108,12 @@ export function parseRefs(line: string): UseRef[] {
   }
   line = line.replace(XREF, " ");
   // "제21호가목부터 라목까지의 규정에 따른 시설" → "제21호의 동물 및 식물 관련 시설 중 가목부터 라목까지"
-  line = line.replace(/제(\d+)호(?:의(\d+))?\s*([가-하])목부터\s*([가-하])목까지의?\s*(?:규정에\s*)?(?:따른|해당하는)\s*(?:시설|건축물|것)?/g, (_m, no: string, sub: string | undefined, a: string, b: string) => {
+  line = line.replace(/제(\d+)호(?:의(\d+))?\s*([가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허])목부터\s*([가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허])목까지의?\s*(?:규정에\s*)?(?:따른|해당하는)\s*(?:시설|건축물|것)?/g, (_m, no: string, sub: string | undefined, a: string, b: string) => {
     const key = no + (sub ? `의${sub}` : "");
     const cat = USE_CATEGORIES.find(c => c.no === key);
     return `제${key}호의 ${cat?.name || ""} 중 ${a}목부터 ${b}목까지 `;
   });
-  const re = /제(\d+)호(?:의(\d+))?(?:\s*([가-하])목)?(?:의|에\s*따른)\s*/g;
+  const re = /제(\d+)호(?:의(\d+))?(?:\s*([가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허])목)?(?:의|에\s*따른)\s*/g;
   const hits = [...line.matchAll(re)];
   for (let i = 0; i < hits.length; i++) {
     const h = hits[i];
@@ -143,6 +149,15 @@ export function parseRefs(line: string): UseRef[] {
       proviso: /다만\s*[,，]/.test(seg) || undefined,
     });
   }
+  // Any 「건축법 시행령」 별표 1 제N호 left unread (odd phrasing such as "제3호가목부터 바목까지 및
+  // 사목(…만 해당한다)") still names its category: keep it as a partial reference so the item is
+  // never mistaken for "not listed".
+  for (const m of original.matchAll(/별표\s*1\s*제(\d+)호(?:의(\d+))?/g)) {
+    const key = m[1] + (m[2] ? `의${m[2]}` : "");
+    if (out.some(r => r.no === key)) continue;
+    const cat = USE_CATEGORIES.find(c => c.no === key);
+    if (cat) out.push({ no: key, name: cat.name, exclude: [], only: original.slice(m.index! + m[0].length).trim().slice(0, 80) || "세부 조건", loose: true });
+  }
   return out;
 }
 
@@ -163,7 +178,7 @@ export function parseUseTable(text: string, mode: "allow" | "deny"): UseTable {
       continue;
     }
     if (!part) continue;
-    const it = l.match(/^([가-하])\.\s*(.*)$/);
+    const it = l.match(/^([가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허])\.\s*(.*)$/);
     if (it) {
       cur = { part, label: it[1], text: it[2], refs: parseRefs(it[2]) };
       items.push(cur);
@@ -200,11 +215,11 @@ export function matchRef(u: UseOf, r: UseRef): { match: Match; why: string } {
   let partial = false;
   const condEx = r.excludeIf?.find(x => x && t.includes(x));
   if (condEx) { partial = true; reasons.push(`${condEx}은(는) 조건에 따라 제외`); }
-  if (r.only && /해당하지\s*아니하는|제외한\s*것/.test(r.only)) {
+  if (r.loose) { /* wording not understood: partial below */ } else if (r.only && /해당하지\s*아니하는|제외한\s*것/.test(r.only)) {
     // "중 제1호마목에 해당하지 아니하는 것" — the rest of the category; part-1 matches are found separately.
   } else if (r.only) {
     const words = WORDS(r.only.replace(/(?:에\s*해당하는\s*것|해당하는\s*것|인\s*것)$/, "")).filter(w => !/^(같은|목|해당)/.test(w));
-    const mokOnly = /^[가-하]목/.test(r.only);
+    const mokOnly = /^[가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허]목/.test(r.only);
     const hit = words.some(w => t.includes(w));
     // A project that names its sub-use ("제2종 근린생활시설(사무소)") is outside an "중 단란주점" item;
     // one that names only the category cannot be decided.
@@ -231,6 +246,7 @@ export function matchRef(u: UseOf, r: UseRef): { match: Match; why: string } {
   }
   if (r.proviso) { partial = true; reasons.push("단서(다만) 예외 있음"); }
   if (r.crossRef) { partial = true; reasons.push(`${r.crossRef}에서 정한 것만 해당`); }
+  if (r.loose) { partial = true; reasons.push(`세부 조건 확인: ${r.only}`); }
   return { match: partial ? "partial" : "full", why: reasons.join(", ") };
 }
 
