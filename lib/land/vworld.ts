@@ -117,11 +117,11 @@ export async function landUses(pnu: string): Promise<LandZone[]> {
   for (const f of fieldList(json.landUses ?? json)) {
     const name = String(f.prposAreaDstrcCodeNm || "").trim();
     if (!name) continue;
-    const relation = relationOf(f.cnflcAtNm ?? f.cnflcAt);
+    const relation = relationOf(f.cnflcAtNm, f.cnflcAt);
     const key = `${name}|${relation || ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(makeZone(name, "vworld", { relation, code: f.prposAreaDstrcCode ? String(f.prposAreaDstrcCode) : undefined, law: f.lawNm ? String(f.lawNm) : undefined }));
+    out.push(makeZone(name, "vworld", { relation, relationRaw: relation ? undefined : [f.cnflcAtNm, f.cnflcAt].filter(x => x !== undefined && x !== "").join("/") || undefined, code: f.prposAreaDstrcCode ? String(f.prposAreaDstrcCode) : undefined, law: f.lawNm ? String(f.lawNm) : undefined }));
   }
   return out;
 }

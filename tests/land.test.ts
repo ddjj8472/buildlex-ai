@@ -10,7 +10,7 @@ import { siteToValues } from "../lib/land/site.ts";
 import type { SiteInfo } from "../lib/land/types.ts";
 import { matchItem, matchRef, parseNumberedUseList, parseRefs, parseUseTable, USE_CATEGORIES, useOf } from "../lib/land/uses.ts";
 import { lookupParcel } from "../lib/land/vworld.ts";
-import { classifyZone, heightFromName, mainUseZone, makeZone, roadWidthFromName, zoneAppendices } from "../lib/land/zones.ts";
+import { classifyZone, heightFromName, mainUseZone, makeZone, relationOf, roadWidthFromName, zoneAppendices } from "../lib/land/zones.ts";
 import type { ProjectValues } from "../lib/review/types.ts";
 
 process.env.LAW_API_OC = ""; // no live 별표 fetches in tests
@@ -230,4 +230,12 @@ test("V-World client: parcel + 토지이용계획 + 토지대장 (mocked respons
     process.env.VWORLD_API_KEY = "";
     process.env.VWORLD_DOMAIN = "";
   }
+});
+
+test("토지이용계획 relation: V-World '접함' and codes", () => {
+  assert.equal(relationOf("접함"), "접합");
+  assert.equal(relationOf("", "3"), "접합");
+  assert.equal(relationOf("포함", "1"), "포함");
+  assert.equal(relationOf("저촉"), "저촉");
+  assert.equal(relationOf("", ""), undefined);
 });

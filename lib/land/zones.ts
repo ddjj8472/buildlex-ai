@@ -47,11 +47,15 @@ export function roadWidthFromName(name: string): [number, number] | undefined {
   return undefined;
 }
 
-export function relationOf(v: unknown): ZoneRelation | undefined {
-  const s = String(v ?? "").trim();
-  if (s === "1" || /포함/.test(s)) return "포함";
-  if (s === "2" || /저촉/.test(s)) return "저촉";
-  if (s === "3" || /접합/.test(s)) return "접합";
+/** 토지이용계획 관계: 포함 / 저촉(일부 걸침) / 접함(인접 — V-World는 "접함", 문서에 따라 "접합"). */
+export function relationOf(...vals: unknown[]): ZoneRelation | undefined {
+  for (const v of vals) {
+    const s = String(v ?? "").trim();
+    if (!s) continue;
+    if (s === "1" || /포함/.test(s)) return "포함";
+    if (s === "2" || /저촉/.test(s)) return "저촉";
+    if (s === "3" || /접(함|합)/.test(s)) return "접합";
+  }
   return undefined;
 }
 

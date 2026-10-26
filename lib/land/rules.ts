@@ -303,6 +303,9 @@ const AREA_RULES: { re: RegExp; id: string; label: string; status: "FAIL" | "UNC
   { re: /수산자원보호구역/, id: "국토의계획및이용에관한법률#40", label: "수산자원보호구역", status: "UNCLEAR", detail: "행위제한은 「수산자원관리법」에 따릅니다(코퍼스 미수록)." },
 ];
 
+/** A V-World designation whose 포함/저촉/접함 relation is unknown might only adjoin the lot. */
+const relationUnknown = (z: LandZone) => z.source === "vworld" && !z.relation;
+
 export function ruleAreas(c: LandContext): BimRuleResult {
   const b: Base = { check_id: "Z-AREA", title: "용도구역 안의 행위제한", requirement: "개발제한구역·도시자연공원구역·시가화조정구역 등에서는 법령이 허용한 행위만 할 수 있음" };
   const areas = zonesOf(c.site, "용도구역");
@@ -314,7 +317,8 @@ export function ruleAreas(c: LandContext): BimRuleResult {
     if (!rule) { issues.push(issue("Z-AREA", i + 1, "UNCLEAR", "major", `${a.name}: 행위제한 확인`, "해당 구역의 근거 법령을 확인하세요.")); return; }
     const art = chunk(rule.id);
     if (art) citations.push(cite(art, firstLine(art)));
-    issues.push(issue("Z-AREA", i + 1, rule.status, "critical", `${rule.label}${a.relation === "저촉" ? "(일부 저촉)" : ""}`, rule.detail + (a.relation === "저촉" ? " 대지 일부만 걸쳐 있으니 걸친 부분의 위치를 확인하세요." : "")));
+    const unknown = relationUnknown(a);
+    issues.push(issue("Z-AREA", i + 1, unknown && rule.status === "FAIL" ? "UNCLEAR" : rule.status, "critical", `${rule.label}${a.relation === "저촉" ? "(일부 저촉)" : ""}`, rule.detail + (a.relation === "저촉" ? " 대지 일부만 걸쳐 있으니 걸친 부분의 위치를 확인하세요." : "") + (unknown ? ` 토지이용계획에 포함·저촉·접함 구분이 없어${a.relationRaw ? `(${a.relationRaw})` : ""} 대지 안인지 확인하세요.` : "")));
   });
   return result({ ...b, citations, notes: [`대상 용도구역: ${areas.map(a => a.name).join(", ")}`] }, issues, areas.length);
 }
@@ -422,7 +426,7 @@ export function ruleEducation(c: LandContext): BimRuleResult {
   const use = squashName(str(c.values, "주용도"));
   const issues: BimIssue[] = [];
   const citations: Citation[] = art ? [cite(art, firstLine(art))] : [];
-  const absolute = zones.some(z => /절대/.test(z.name));
+  const absolute = zones.some(z => /절대/.test(z.name) && !relationUnknown(z));
   for (const k of EDU_KEYS) {
     if (!k.re.test(use)) continue;
     const l = lineWith(art, k.line);

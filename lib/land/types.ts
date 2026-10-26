@@ -14,6 +14,8 @@ export type LandZone = {
   name: string;
   kind: ZoneKind;
   relation?: ZoneRelation;
+  /** The API's own relation value when it was not recognised (shown so the user can judge). */
+  relationRaw?: string;
   /** Law the designation is based on, as the API reports it (e.g. 「국토의 계획 및 이용에 관한 법률」). */
   law?: string;
   code?: string;

@@ -211,7 +211,7 @@ export default function SitePanel({ site, onChange, use, compact }: Props) {
                   <div className="site-chips">
                     {list.map(({ z, i }) => (
                       <span key={`${z.name}-${i}`} className={`chip site-chip k-${kind}`} title={z.law || ""}>
-                        {z.name}{z.relation && z.relation !== "포함" ? <em>{z.relation}</em> : null}
+                        {z.name}{z.relation && z.relation !== "포함" ? <em>{z.relation === "접합" ? "접함" : z.relation}</em> : z.source === "vworld" && !z.relation ? <em title={z.relationRaw ? `토지이용계획 값: ${z.relationRaw}` : "포함·저촉·접함 구분 없음"}>구분 없음</em> : null}
                         <button type="button" aria-label={`${z.name} 삭제`} onClick={() => removeZone(i)}>×</button>
                       </span>
                     ))}
