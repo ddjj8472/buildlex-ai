@@ -134,7 +134,8 @@ export async function useMatrix(zone: string, opts: { region?: Region | null; di
     const u = useOf(cat.name);
     let row: UseRow = { no: cat.no, name: cat.name, verdict: "확인", by: out.appendix.label };
     if (zt.table) {
-      const hits = zt.table.items.map(it => ({ it, m: matchItem(u, it) })).filter(x => x.m.match !== "none");
+      // Height-only items ("4층을 초과하는 모든 건축물") say nothing about the use itself.
+      const hits = zt.table.items.filter(it => !it.refs.every(r => r.no === "*")).map(it => ({ it, m: matchItem(u, it) })).filter(x => x.m.match !== "none");
       const p1 = hits.filter(h => h.it.part === 1), p2 = hits.filter(h => h.it.part === 2);
       const pick = p1[0] || p2[0];
       const txt = pick ? `${pick.it.label}. ${pick.it.text}` : undefined;
@@ -152,6 +153,8 @@ export async function useMatrix(zone: string, opts: { region?: Region | null; di
   if (!zt.table) out.notes.push(`${out.appendix.label} 본문을 불러오지 못해 용도지역 기준은 판정하지 않았습니다('확인')${zt.why ? ` — ${zt.why}` : ""}.${districtLists.length ? " 표시된 불허·조건은 용도지구 조례에 따른 것입니다." : ""}`);
   else {
     out.notes.push("대분류(별표 1 호) 기준 판정입니다. 세부 용도·면적·층수 조건이 있는 항목은 '조건'으로 표시합니다.");
+    const heightItems = zt.table.items.filter(it => it.refs.length && it.refs.every(r => r.no === "*"));
+    if (heightItems.length) out.notes.push(`용도와 관계없이 층수로 정한 제한: ${heightItems.map(it => `${it.part === 2 ? "(조례) " : ""}${it.text.slice(0, 60)}`).join(" / ")}`);
     if (unreadable.length) out.notes.push(`자동으로 읽지 못한 항목이 있어 목록에 없는 용도는 '확인'으로 두었습니다: ${unreadable.map(i => `${i.part}.${i.label} ${i.text.slice(0, 60)}`).join(" / ")}`);
   }
   return out;

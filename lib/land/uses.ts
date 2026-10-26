@@ -76,6 +76,10 @@ export type UseRef = {
   crossRef?: string;
   /** Category found but the wording around it was not understood — only ever a partial match. */
   loose?: boolean;
+  /** no "*": every building above this many floors ("4층을 초과하는 모든 건축물"). */
+  floorsOver?: number;
+  /** no "*": above a floor count the ordinance sets. */
+  floorsByOrdinance?: boolean;
 };
 export type UseItem = { part: 1 | 2; label: string; text: string; refs: UseRef[] };
 export type UseTable = { mode: "allow" | "deny"; items: UseItem[]; headers: { part: 1 | 2; text: string }[] };
@@ -97,6 +101,9 @@ const WORDS = (s: string) => s.split(/\s*(?:[,ㆍ·및]|와|과|또는|그밖에
 export function parseRefs(line: string): UseRef[] {
   const out: UseRef[] = [];
   const original = line;
+  // "4층을 초과하는 모든 건축물" / "…조례로 따로 정한 층수를 초과하는 모든 건축물": every use, by height.
+  const all = line.match(/(?:(\d+)\s*층을|층수를)\s*초과하는\s*모든\s*건축물/);
+  if (all) return [{ no: "*", name: "모든 건축물", exclude: [], floorsOver: all[1] ? Number(all[1]) : undefined, floorsByOrdinance: !all[1] || undefined }];
   // References to another 별표 of the same decree ("별표 4 제2호차목 및 카목의 공장") — not to
   // 「건축법 시행령」 별표 1. The category comes from the noun that follows; the detail lives in
   // the other 별표, so a match is only ever partial.
@@ -208,6 +215,13 @@ export type Match = "full" | "partial" | "none";
 
 /** Does the project's use fall within this reference? */
 export function matchRef(u: UseOf, r: UseRef): { match: Match; why: string } {
+  if (r.no === "*") {
+    if (r.floorsOver !== undefined) {
+      if (u.floors === undefined) return { match: "partial", why: `${r.floorsOver}층 초과 여부 확인` };
+      return u.floors > r.floorsOver ? { match: "full", why: `${u.floors}층 > ${r.floorsOver}층` } : { match: "none", why: "" };
+    }
+    return { match: "partial", why: "조례로 정한 층수 초과 여부 확인" };
+  }
   if (!u.no || u.no !== r.no) return { match: "none", why: "" };
   const t = u.text;
   if (r.exclude.some(x => x && t.includes(x))) return { match: "none", why: `${r.exclude.join("·")} 제외` };
