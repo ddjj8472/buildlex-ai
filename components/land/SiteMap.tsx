@@ -41,7 +41,10 @@ export default function SiteMap({ mapKey, parcel, marker, center, onPick }: Prop
       const L = (await import("leaflet")).default;
       if (!alive || !host.current || map.current) return;
       lib.current = L;
-      const m = L.map(host.current, { zoomControl: true, attributionControl: true }).setView([SEOUL.lat, SEOUL.lon], 12);
+      // Wheel zoom only after the map is clicked, so scrolling the page past it does not zoom it.
+      const m = L.map(host.current, { zoomControl: true, attributionControl: true, scrollWheelZoom: false }).setView([SEOUL.lat, SEOUL.lon], 12);
+      m.on("focus click", () => m.scrollWheelZoom.enable());
+      m.on("blur mouseout", () => m.scrollWheelZoom.disable());
       const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' });
       const bases: Record<string, Leaflet.TileLayer> = { "OpenStreetMap": osm };
       const overlays: Record<string, Leaflet.Layer> = {};
