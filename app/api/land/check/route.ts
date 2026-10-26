@@ -6,7 +6,7 @@ import { phaseHandler } from "@/lib/review/routes/handler";
 import type { FieldKey, FieldValue, ProjectValues } from "@/lib/review/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 // 대지 사전검토 (모델 없이): 토지이용계획 + 주용도 → 입지·용도 규칙.

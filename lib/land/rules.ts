@@ -70,7 +70,7 @@ export async function ruleZoneUse(c: LandContext): Promise<BimRuleResult> {
   b.tier = 1;
   if (!zt.table || !ap) {
     return result({ ...b, status: "UNCLEAR", code_confidence: "MEDIUM", notes: [
-      `${apLabel} 본문을 불러오지 못했습니다(코퍼스에는 제목만 수록). 법제처 Open API 키(LAW_API_OC)를 설정하면 원문을 실시간으로 읽어 자동 판정합니다.`,
+      `${apLabel} 본문을 불러오지 못했습니다(코퍼스에는 제목만 수록)${zt.why ? ` — ${zt.why}` : ""}. 법제처 원문을 읽으면 자동 판정합니다.`,
       ap?.attachment ? `원문: ${ap.attachment}` : "",
       `판정 대상: ${use}${u.name ? ` → 「건축법 시행령」 별표 1 제${u.no}호 ${u.name}` : " (별표 1 용도를 특정하지 못함)"}`,
     ].filter(Boolean) }, [], 0);
@@ -140,7 +140,7 @@ export async function useMatrix(zone: string, opts: { region?: Region | null; di
     }
     out.rows.push(row);
   }
-  if (!zt.table) out.notes.push(`${out.appendix.label} 본문을 불러오지 못해 용도지역 기준은 판정하지 않았습니다('확인').${districtLists.length ? " 표시된 불허·조건은 용도지구 조례에 따른 것입니다." : ""} LAW_API_OC(법제처 Open API 키)를 설정하거나 코퍼스를 별표 본문까지 빌드하세요.`);
+  if (!zt.table) out.notes.push(`${out.appendix.label} 본문을 불러오지 못해 용도지역 기준은 판정하지 않았습니다('확인')${zt.why ? ` — ${zt.why}` : ""}.${districtLists.length ? " 표시된 불허·조건은 용도지구 조례에 따른 것입니다." : ""}`);
   else out.notes.push("대분류(별표 1 호) 기준 판정입니다. 세부 용도·면적·층수 조건이 있는 항목은 '조건'으로 표시합니다.");
   return out;
 }

@@ -4,7 +4,7 @@ import type { LandZone } from "@/lib/land/types";
 import { phaseHandler } from "@/lib/review/routes/handler";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 // "이 땅에 지을 수 있는 용도": 별표 1 용도 29종 × 용도지역 별표(+ 용도지구 조례).
