@@ -1,9 +1,9 @@
 // Local run of the /bim review on one IFC file (demo verification).
 import fs from "node:fs";
 import * as WebIFC from "web-ifc";
-import { analyze } from "./lib/bim/analyze.ts";
-import { readIfc } from "./lib/bim/ifc-read.ts";
-import { reviewBim } from "./lib/bim/rules.ts";
+import { analyze } from "../../lib/bim/analyze.ts";
+import { readIfc } from "../../lib/bim/ifc-read.ts";
+import { reviewBim } from "../../lib/bim/rules.ts";
 
 const file = process.argv[2];
 const api = new WebIFC.IfcAPI();
