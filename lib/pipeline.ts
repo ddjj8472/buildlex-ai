@@ -227,9 +227,13 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
       // and finally to an extractive answer so the retrieved evidence is never lost.
       const models = [...new Set([MODEL, ...FALLBACK_MODELS])];
       let lastError = "";
+      const stalled = new Set<string>();
       for (const [i, model] of models.flatMap(m => [m, m]).entries()) {
         if (elapsed() > 44000) break;
-        if (i > 0) await new Promise(r => setTimeout(r, 600 * i));
+        // A model that produced nothing within the first-token window is queued, not
+        // rate-limited: retrying it burns the remaining budget, so go to the next model.
+        if (stalled.has(model)) continue;
+        if (i > 0) await new Promise(r => setTimeout(r, 600 * Math.min(i, 2)));
         try {
           if (answer) { emit({ type: "reset" }); answer = ""; }
           // A stalled first attempt must not consume the whole 60 s function budget.
@@ -241,6 +245,7 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
           }
         } catch (e) {
           lastError = e instanceof Error ? e.message : String(e);
+          if (/첫 응답 지연/.test(lastError)) stalled.add(model);
           if (input.signal?.aborted || !/\b(404|429|500|502|503|504)\b|NOT_FOUND|UNAVAILABLE|overloaded|high demand|RESOURCE_EXHAUSTED|fetch failed/i.test(lastError)) break;
         }
       }
