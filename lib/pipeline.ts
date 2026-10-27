@@ -17,6 +17,8 @@ export type AskInput = {
   facts?: SiteFacts;
   history?: Turn[];
   evalMode?: EvalMode;
+  /** Evaluation only: 법령해석례 whose 안건명 matches one of these are never used as evidence (held-out test cases). */
+  holdout?: string[];
   signal?: AbortSignal;
 };
 
@@ -36,10 +38,16 @@ export function matchNotes(text: string, evidenceIds: string[]): Note[] {
 }
 
 /** 법령해석례: search with the leading legal term, keep items whose title shares the query's terms. */
-async function relevantInterpretations(a: QueryAnalysis): Promise<Interpretation[]> {
+const normTitle = (t: string) => t.replace(/^[^-]{1,40}\s-\s/, "").replace(/[^가-힣A-Za-z0-9]/g, "").slice(0, 40);
+export const isHeldOut = (title: string, holdout: string[] = []) => {
+  const t = normTitle(title);
+  return t.length >= 8 && holdout.some(h => { const n = normTitle(h); return n.length >= 8 && (t.startsWith(n.slice(0, 30)) || n.startsWith(t.slice(0, 30))); });
+};
+
+async function relevantInterpretations(a: QueryAnalysis, holdout: string[] = []): Promise<Interpretation[]> {
   const terms = [...new Set([...a.legalTerms, ...a.standalone.split(/\s+/)])].map(t => t.replace(/\s+/g, "")).filter(t => t.length >= 2).slice(0, 14);
   const key = a.legalTerms[0] || a.standalone.slice(0, 20);
-  const list = await searchInterpretations(key, 8);
+  const list = (await searchInterpretations(key, 8)).filter(x => !isHeldOut(x.title, holdout));
   const scored = list
     .map(x => ({ x, s: terms.filter(t => x.title.replace(/\s+/g, "").includes(t)).length + terms.filter(t => (x.question || "").replace(/\s+/g, "").includes(t)).length * 0.5 }))
     .filter(v => v.s >= 1.5)
@@ -164,7 +172,7 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
   const retrieve = async (a: QueryAnalysis) => {
     const [{ evidence, debug }, interp] = await Promise.all([
       hybridSearch(a, { region: effRegion, rerank: hasLLM() && !isMock() && elapsed() < 18000 ? llmReranker(input.signal, m => warnings.push(`AI 재순위 생략: ${m}`)) : undefined }),
-      lawApiEnabled() ? relevantInterpretations(a).catch(() => []) : Promise.resolve([]),
+      lawApiEnabled() ? relevantInterpretations(a, input.holdout).catch(() => []) : Promise.resolve([]),
     ]);
     interpretations = interp;
     if (debug.dense === "unavailable") warnings.push("의미 검색(임베딩) 색인이 없어 키워드·법률용어 확장 검색만 사용했습니다.");

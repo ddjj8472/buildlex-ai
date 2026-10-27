@@ -74,3 +74,11 @@ test("verifier accepts [근거 n] citations", async () => {
   assert.equal(v.ok, true);
   assert.deepEqual(v.cited, [1, 2, 3]);
 });
+
+test("evaluation holdout hides the held-out 법령해석례 by 안건명", async () => {
+  const { isHeldOut } = await import("../lib/pipeline.ts");
+  const held = ["민원인 - 「건축법」에 따른 이행강제금 부과 시 법령 등에서 정한 감경비율 이상 감경하거나 감경사유 외의 사유로 감경할 수 있는지 등(「건축법」 제80조의2 등 관련)"];
+  assert.equal(isHeldOut("「건축법」에 따른 이행강제금 부과 시 법령 등에서 정한 감경비율 이상 감경하거나 감경사유 외의 사유로 감경할 수 있는지 등", held), true);
+  assert.equal(isHeldOut("「주차장법」에 따른 부설주차장 설치기준", held), false);
+  assert.equal(isHeldOut("아무 해석례", []), false);
+});
