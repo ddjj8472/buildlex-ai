@@ -20,6 +20,8 @@ import type { ViewerHandle } from "./Viewer3D";
 const Viewer3D = dynamic(() => import("./Viewer3D"), { ssr: false, loading: () => <div className="bim-canvas bim-loading">3D 뷰어 준비 중…</div> });
 
 const SAMPLES = [
+  { file: "/bim/demo-1-violations.ifc", label: "데모 1 · 다세대 위반안(Revit)" },
+  { file: "/bim/demo-2-fixed.ifc", label: "데모 2 · 다세대 수정안(Revit)" },
   { file: "/bim/sample-a-compliant.ifc", label: "샘플 A · 근린생활시설(적합)" },
   { file: "/bim/sample-b-violations.ifc", label: "샘플 B · 공동주택(위반 포함)" },
 ];

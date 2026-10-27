@@ -97,6 +97,8 @@ export type Evidence = {
   score: number;
   via: "search" | "expand" | "appendix" | "ordinance" | "knowledge";
   reason?: string;
+  /** 항·호 the question names for this provision (used to excerpt long articles). */
+  focus?: { paras: number[]; items: number[] };
 };
 
 export type Interpretation = {

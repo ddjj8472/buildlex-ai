@@ -70,14 +70,25 @@ async function generateJSONOnce<T>(prompt: string, opts: JSONOpts = {}): Promise
   }
 }
 
-export async function* streamText(prompt: string, opts: { model?: string; timeoutMs?: number; maxTokens?: number; signal?: AbortSignal } = {}): AsyncGenerator<string> {
+/**
+ * @param opts.firstTokenMs abort when no text has arrived by then. A model that is queued
+ *   or stalled otherwise holds the whole request budget and leaves no time for fallbacks.
+ */
+export async function* streamText(prompt: string, opts: { model?: string; timeoutMs?: number; firstTokenMs?: number; maxTokens?: number; signal?: AbortSignal } = {}): AsyncGenerator<string> {
+  const stall = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined = opts.firstTokenMs
+    ? setTimeout(() => stall.abort(new Error(`첫 응답 지연(${Math.round(opts.firstTokenMs! / 1000)}초) UNAVAILABLE`)), opts.firstTokenMs)
+    : undefined;
+  const clear = () => { if (timer) { clearTimeout(timer); timer = undefined; } };
+  try {
   const res = await fetch(`${API}/${encodeURIComponent(opts.model || MODEL)}:streamGenerateContent?alt=sse`, {
     method: "POST",
     headers: headers(),
-    signal: anySignal(opts.signal, AbortSignal.timeout(opts.timeoutMs ?? 55000)),
+    signal: anySignal(opts.signal, AbortSignal.timeout(opts.timeoutMs ?? 55000), stall.signal),
     body: JSON.stringify({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.15, maxOutputTokens: opts.maxTokens ?? 3000 },
+      // Deterministic decoding: the same question should get the same legal conclusion.
+      generationConfig: { temperature: 0, maxOutputTokens: opts.maxTokens ?? 3000 },
     }),
   });
   if (!res.ok || !res.body) {
@@ -101,10 +112,14 @@ export async function* streamText(prompt: string, opts: { model?: string; timeou
       try {
         const chunk = JSON.parse(json) as GeminiResponse;
         const text = chunk.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
-        if (text) yield text;
+        if (text) { clear(); yield text; }
       } catch { /* partial line */ }
     }
   }
+  } catch (e) {
+    if (stall.signal.aborted) throw stall.signal.reason;
+    throw e;
+  } finally { clear(); }
 }
 
 function anySignal(...signals: (AbortSignal | undefined)[]): AbortSignal {

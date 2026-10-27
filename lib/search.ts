@@ -4,6 +4,7 @@
 import { topK } from "./bm25.ts";
 import { applicableRegions, familyOf, loadNational, type Loaded } from "./corpus.ts";
 import { denseScores, embed, loadDense } from "./dense.ts";
+import type { Citation } from "./cite.ts";
 import { lawKeyOf } from "./text.ts";
 import type { Chunk, Evidence, QueryAnalysis, Region } from "./types.ts";
 
@@ -15,7 +16,13 @@ export type SearchOptions = {
   rerank?: Reranker;
   limit?: number;
   maxExpansions?: number;
+  /** Provisions the question names explicitly (see cite.ts); pinned ahead of ranked hits. */
+  cited?: Citation[];
 };
+
+/** 부칙 chunks only compete when the question is about 적용례·경과조치·시행 시점. */
+export const ADDENDA_Q = /부칙|경과\s*조치|적용례|시행일|시행\s*(?:전|이후|후)|시행되기\s*전|개정되기\s*전|종전의?\s*규정|제\s*\d{4,6}\s*호/;
+const MAX_PINNED = 5;
 
 export type SearchDebug = {
   lists: { name: string; top: string[] }[];
@@ -62,6 +69,7 @@ function lawBoost(loaded: Loaded, a: QueryAnalysis): (c: Chunk) => number {
 
 function bm25Lists(loaded: Loaded, a: QueryAnalysis, depth: number): { lists: Ranked[]; best: Float32Array } {
   const boost = lawBoost(loaded, a);
+  const addendaOk = ADDENDA_Q.test(a.standalone);
   const lists: Ranked[] = [];
   let best: Float32Array = new Float32Array(loaded.chunks.length);
   for (const v of queryVariants(a)) {
@@ -70,6 +78,8 @@ function bm25Lists(loaded: Loaded, a: QueryAnalysis, depth: number): { lists: Ra
       s[i] *= boost(loaded.chunks[i]);
       // Deleted/very short provisions carry little evidential value.
       if (loaded.chunks[i].text.length < 25) s[i] *= 0.3;
+      // 부칙 text repeats the vocabulary of the articles it amends; keep it out of ordinary questions.
+      if (loaded.chunks[i].path === "부칙" && !addendaOk) s[i] *= 0.2;
     }
     if (v.name === "법률용어 확장") best = s;
     lists.push({ name: `BM25·${v.name}`, weight: v.weight, ids: topK(s, depth).map(x => loaded.chunks[x.i].id) });
@@ -126,8 +136,15 @@ export async function hybridSearch(a: QueryAnalysis, opts: SearchOptions = {}): 
     evidence.push({ n: 0, chunk, score, via, reason });
     return true;
   };
+  // Provisions named in the question come first: they are what the asker is asking about.
+  let pinned = 0;
+  for (const c of opts.cited || []) {
+    if (pinned >= MAX_PINNED) break;
+    const chunk = national.byId.get(c.id);
+    if (chunk && push(chunk, 1, "search", "질문에 인용된 조문")) { evidence[evidence.length - 1].focus = { paras: c.paras, items: c.items }; pinned++; }
+  }
   for (const r of ranked) {
-    if (evidence.length >= limit) break;
+    if (evidence.length >= limit + pinned) break;
     const c = national.byId.get(r.id);
     if (c) push(c, r.s, "search");
   }

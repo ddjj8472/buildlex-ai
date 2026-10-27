@@ -5,6 +5,7 @@ import { ruleAnalysis } from "./analyze-rules.ts";
 import { findChunk, loadNational, resolveRegion } from "./corpus.ts";
 import { fetchAppendix, lawApiEnabled, searchInterpretations } from "./law-api.ts";
 import { FALLBACK_MODELS, FAST_MODEL, MODEL, generateJSON, hasLLM, isMock, streamText } from "./llm.ts";
+import { parseCitations, missingLaws } from "./cite.ts";
 import { answerPrompt, analysisPrompt, evaluationPrompt, rerankPrompt, type Note, type Turn } from "./prompts.ts";
 import { hybridSearch, type Reranker } from "./search.ts";
 import { lawKeyOf, formatDate } from "./text.ts";
@@ -169,9 +170,16 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
   const warnings: string[] = [];
   let interpretations: Interpretation[] = [];
 
+  // Provisions the asker cites by number are pinned into the evidence; laws the corpus
+  // lacks are flagged so the answer does not fill them in from model memory.
+  const lawKeys = new Set(loadNational().laws.keys());
+  const cited = parseCitations(input.query, lawKeys);
+  const absent = missingLaws(input.query, lawKeys);
+  if (absent.length) warnings.push(`질문에 나온 ${absent.slice(0, 3).map(n => `「${n}」`).join(", ")}은(는) 검색 색인에 원문이 없어 해당 내용은 원문 확인이 필요합니다.`);
+
   const retrieve = async (a: QueryAnalysis) => {
     const [{ evidence, debug }, interp] = await Promise.all([
-      hybridSearch(a, { region: effRegion, rerank: hasLLM() && !isMock() && elapsed() < 18000 ? llmReranker(input.signal, m => warnings.push(`AI 재순위 생략: ${m}`)) : undefined }),
+      hybridSearch(a, { region: effRegion, cited, rerank: hasLLM() && !isMock() && elapsed() < 18000 ? llmReranker(input.signal, m => warnings.push(`AI 재순위 생략: ${m}`)) : undefined }),
       lawApiEnabled() ? relevantInterpretations(a, input.holdout).catch(() => []) : Promise.resolve([]),
     ]);
     interpretations = interp;
@@ -214,23 +222,30 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
       answer = extractiveAnswer(evidence, analysis);
       emit({ type: "delta", text: answer });
     } else {
-      const prompt = answerPrompt({ query: input.query, analysis, region: effRegion?.label || "", evidence, interpretations, notes, warnings, history: input.history || [] });
+      const prompt = answerPrompt({ query: input.query, analysis, region: effRegion?.label || "", evidence, interpretations, notes, warnings, history: input.history || [], missingLaws: absent });
       // Retry transient overload (429/503) with backoff, then fall back to other models,
       // and finally to an extractive answer so the retrieved evidence is never lost.
       const models = [...new Set([MODEL, ...FALLBACK_MODELS])];
       let lastError = "";
+      const stalled = new Set<string>();
       for (const [i, model] of models.flatMap(m => [m, m]).entries()) {
         if (elapsed() > 44000) break;
-        if (i > 0) await new Promise(r => setTimeout(r, 600 * i));
+        // A model that produced nothing within the first-token window is queued, not
+        // rate-limited: retrying it burns the remaining budget, so go to the next model.
+        if (stalled.has(model)) continue;
+        if (i > 0) await new Promise(r => setTimeout(r, 600 * Math.min(i, 2)));
         try {
           if (answer) { emit({ type: "reset" }); answer = ""; }
-          for await (const d of streamText(prompt, { model, signal: input.signal, timeoutMs: Math.max(10000, 52000 - elapsed()) })) { answer += d; emit({ type: "delta", text: d }); }
+          // A stalled first attempt must not consume the whole 60 s function budget.
+          const left = 52000 - elapsed();
+          for await (const d of streamText(prompt, { model, signal: input.signal, timeoutMs: Math.max(10000, left), firstTokenMs: Math.min(15000, Math.max(6000, left - 20000)) })) { answer += d; emit({ type: "delta", text: d }); }
           if (answer.trim()) {
             if (model !== MODEL) emit({ type: "warning", message: `기본 모델이 혼잡해 ${model} 모델로 답변했습니다.` });
             return answer;
           }
         } catch (e) {
           lastError = e instanceof Error ? e.message : String(e);
+          if (/첫 응답 지연/.test(lastError)) stalled.add(model);
           if (input.signal?.aborted || !/\b(404|429|500|502|503|504)\b|NOT_FOUND|UNAVAILABLE|overloaded|high demand|RESOURCE_EXHAUSTED|fetch failed/i.test(lastError)) break;
         }
       }
