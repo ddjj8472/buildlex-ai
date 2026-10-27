@@ -1,11 +1,11 @@
 import fs from "node:fs";
-import { parseCitations } from "/home/claude/buildlex-ai/lib/cite.ts";
-import { loadNational } from "/home/claude/buildlex-ai/lib/corpus.ts";
-import { hybridSearch } from "/home/claude/buildlex-ai/lib/search.ts";
-import { ruleAnalysis } from "/home/claude/buildlex-ai/lib/analyze-rules.ts";
-import { formatEvidence } from "/home/claude/buildlex-ai/lib/prompts.ts";
+import { parseCitations } from "../../lib/cite.ts";
+import { loadNational } from "../../lib/corpus.ts";
+import { hybridSearch } from "../../lib/search.ts";
+import { ruleAnalysis } from "../../lib/analyze-rules.ts";
+import { formatEvidence } from "../../lib/prompts.ts";
 const nat = loadNational(); const keys = new Set([...nat.laws.keys()]);
-const S = JSON.parse(fs.readFileSync("/home/claude/buildlex-ai/tests/minwon.json", "utf8"));
+const S = JSON.parse(fs.readFileSync(new URL("../../tests/minwon.json", import.meta.url), "utf8"));
 let a = 0, b = 0, t = 0, inText = 0;
 for (const x of S) {
   const g = x.gold_title as string[]; if (!g.length) continue; t++;

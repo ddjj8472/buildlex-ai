@@ -1,9 +1,9 @@
 import fs from "node:fs";
-import { parseCitations, missingLaws } from "/home/claude/buildlex-ai/lib/cite.ts";
-import { loadNational } from "/home/claude/buildlex-ai/lib/corpus.ts";
+import { parseCitations, missingLaws } from "../../lib/cite.ts";
+import { loadNational } from "../../lib/corpus.ts";
 const nat = loadNational();
 const keys = new Set([...nat.laws.keys()]);
-const S = JSON.parse(fs.readFileSync("/home/claude/buildlex-ai/tests/minwon.json", "utf8"));
+const S = JSON.parse(fs.readFileSync(new URL("../../tests/minwon.json", import.meta.url), "utf8"));
 let hit = 0, tot = 0;
 for (const [i, x] of S.entries()) {
   const c = parseCitations(x.question, keys);
