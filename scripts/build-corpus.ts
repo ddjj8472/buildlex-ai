@@ -7,7 +7,9 @@
  * - ordinances     -> data/index/ord/<region>.json (one shard per region)
  * - region list    -> data/index/regions.json
  *
- * Articles are chunked per 조, 부칙 are excluded, appendix titles are indexed
+ * Articles are chunked per 조; each own-law 부칙 (by 법률·대통령령 번호) is one chunk
+ * (id 건축법#부칙15721, path "부칙") so 적용례·경과조치 questions have their text — other-law
+ * 부칙(타법개정) are skipped as noise. Appendix titles are indexed
  * (their bodies are fetched live from the 법제처 API at answer time), and
  * citations such as "법 제11조", "영 제3조의2", "「주차장법」 제19조", "별표 1"
  * are resolved into a graph used for delegation expansion.
@@ -99,6 +101,20 @@ function cleanText(lines: string[]): string {
 
 type RawArticle = { articleNo: string; key: string; heading: string; path: string; text: string };
 
+/** Own-law 부칙 blocks ("부칙 <제15721호,2018.8.14>"); 타법개정 blocks ("부칙(주택법) <…>") are skipped. */
+export function parseAddenda(section: string): RawArticle[] {
+  const out: RawArticle[] = [];
+  const blocks = section.split(/\n(?=부칙\s*(?:\([^)\n]*\))?\s*<)/);
+  for (const b of blocks) {
+    const h = b.match(/^부칙\s*(\([^)\n]*\))?\s*<\s*제\s*(\d+)\s*호\s*,\s*([\d.\s]+?)\s*>/);
+    if (!h || h[1]) continue;
+    const text = cleanText(b.slice(h[0].length).split("\n"));
+    if (text.length < 15) continue;
+    out.push({ articleNo: `부칙 <제${h[2]}호, ${h[3].replace(/\s+/g, "")}>`, key: `부칙${Number(h[2])}`, heading: "부칙", path: "부칙", text });
+  }
+  return out;
+}
+
 function parseArticles(body: string): RawArticle[] {
   const out: RawArticle[] = [];
   let chapter = "";
@@ -111,7 +127,11 @@ function parseArticles(body: string): RawArticle[] {
     cur = null;
   };
   for (const line of body.split("\n")) {
-    if (/^##\s*부\s*칙/.test(line)) { flush(); break; }
+    if (/^##\s*부\s*칙/.test(line)) {
+      flush();
+      out.push(...parseAddenda(body.slice(body.indexOf(line) + line.length)));
+      break;
+    }
     const art = line.match(/^#{4,6}\s*제\s*(\d+)\s*조(?:\s*의\s*(\d+))?\s*(?:\((.*)\))?\s*$/);
     if (art) {
       flush();
@@ -316,14 +336,15 @@ async function main() {
   fs.mkdirSync(path.join(OUT, "ord"), { recursive: true });
   const national = readNational();
   const nationalKeys = new Set(national.map(f => f.meta.lawKey));
-  const { files: ordinances, regions } = readOrdinances(nationalKeys);
+  const nationalOnly = !!process.env.NATIONAL_ONLY;
+  const { files: ordinances, regions } = nationalOnly ? { files: [], regions: [] } : readOrdinances(nationalKeys);
   const nameToKey = new Map<string, string>();
   for (const f of national) nameToKey.set(f.meta.lawKey, f.meta.lawKey);
 
   const nationalChunks = national.flatMap(toChunks);
   const nationalIds = new Set(nationalChunks.map(c => c.id));
   const metaByKey = new Map(national.map(f => [f.meta.lawKey, f.meta]));
-  for (const c of nationalChunks) c.refs = resolveRefs(c, metaByKey.get(c.lawKey)!, nationalIds, nameToKey);
+  for (const c of nationalChunks) c.refs = c.path === "부칙" ? [] : resolveRefs(c, metaByKey.get(c.lawKey)!, nationalIds, nameToKey);
 
   // Optional: pull 별표 본문 from the 법제처 API so appendices are searchable offline.
   if (process.env.LAW_API_OC) {
@@ -342,6 +363,10 @@ async function main() {
   const corpus: CorpusFile = { builtAt, asOf: AS_OF, source: "legalize-kr", laws: national.map(f => f.meta), chunks: nationalChunks };
   fs.writeFileSync(path.join(OUT, "national.json"), JSON.stringify(corpus));
 
+  if (nationalOnly) {
+    console.log(`national laws=${national.length} chunks=${nationalChunks.length} (NATIONAL_ONLY: ordinance shards left as they are)`);
+    return;
+  }
   const byRegion = new Map<string, LawFile[]>();
   for (const f of ordinances) byRegion.set(f.meta.region!, [...(byRegion.get(f.meta.region!) || []), f]);
   for (const old of fs.readdirSync(path.join(OUT, "ord"))) fs.rmSync(path.join(OUT, "ord", old));
