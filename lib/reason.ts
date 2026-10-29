@@ -168,7 +168,7 @@ export function formatAnalysis(c: Consolidated): string {
       `  반대 결론(${i.votes.filter(v => v === i.alt!.conclusion).length}/${i.votes.length}): ${i.alt.conclusion} — ${i.alt.answer}`,
       ...i.alt.rules.map(r => `    반대 측 대전제 [근거 ${r.n}]: "${r.quote}"`),
       ...i.alt.exceptions.map(e => `    반대 측 단서·예외 [근거 ${e.n}] "${e.quote}" — 빼는 대상: ${e.covers}`),
-      "  → 분석 엇갈림: 다수결이 아니라 [해석 원칙]과 [검색 근거] 원문에 비추어 맞는 결론을 택할 것",
+      "  → 분석 엇갈림: 다수결이 아니라 [해석 원칙]과 [검색 근거] 원문에 비추어 맞는 결론을 택할 것(문언이 결론을 직접 말하는 쪽 우선)",
     ] : []),
   ].filter(Boolean).join("\n")).join("\n\n");
 }
