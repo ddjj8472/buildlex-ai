@@ -94,6 +94,9 @@ export default function App() {
     setConvs(load());
     try { const t = localStorage.getItem("bl-theme"); if (t === "light" || t === "dark") setTheme(t); } catch { /* ignore */ }
     try { const m = localStorage.getItem("bl-eval"); if (m === "none" || m === "check" || m === "auto") setEvalMode(m); } catch { /* ignore */ }
+    // ?q= (e.g. from the BIM 시공 단계 tab) prefills the question; it is not sent until the user does.
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) { setInput(q.slice(0, 1500)); window.history.replaceState(null, "", window.location.pathname); setTimeout(() => taRef.current?.focus(), 0); }
   }, []);
   useEffect(() => { if (convs.length || localStorage.getItem(STORE)) save(convs); }, [convs]);
 

@@ -12,7 +12,9 @@ openings filled by doors and windows, Pset_*Common, and the BuildLex_KR property
 (see lib/bim/convention.ts and public/bim/README.md).
 
 Run:  python3 scripts/make-test-ifc.py   (needs: pip install ifcopenshell)
-Out:  public/bim/sample-a-compliant.ifc, public/bim/sample-b-violations.ifc
+  C  가상 고층 공동주택 — 지하 3층·지상 12층, 시공 단계 탭 시연용 (굴착·개구부·세대수)
+
+Out:  public/bim/sample-a-compliant.ifc, public/bim/sample-b-violations.ifc, public/bim/demo-3-highrise.ifc
       tests/bim/*.truth.json  (hand-computed expected values for tests/bim.test.ts)
 """
 import json
@@ -400,6 +402,76 @@ def build_b():
     return out
 
 
+# ───────────────────── C: 고층 공동주택 (시공 단계 데모) ─────────────────────
+def build_c():
+    """12층 아파트 + 지하 3층 주차장. 시공 단계 탭 시연용: 매트기초 하단 GL-11.5m (소규모 지하안전평가),
+    48세대 (주택법 사업계획승인), 10층 이상 (안전관리계획), 층마다 계단실·승강로 슬래브 개구부."""
+    m = Model("가상 공동주택 C", "BuildLex AI BIM 시공 단계 시연 모델 — 지하 3층·지상 12층 아파트")
+    m.site("대지", rect(0, 0, 60, 50), 대지위치="서울특별시 마포구 상암동 3-1", 용도지역="제2종일반주거지역", 대지면적=3000.0, 전면도로폭=12.0, 접도길이=60.0)
+    m.building("공동주택 C동", 주용도="공동주택(아파트)", 세대수=48, 주요구조부내화=True, 사업계획승인대상=True, 구조="철근콘크리트조")
+    X0, Y0, X1, Y1, T = 4.0, 4.0, 34.0, 19.0, 0.2
+    BX0, BY0, BX1, BY1 = 2.0, 2.0, 36.0, 21.0
+    STAIR = rect(16.2, 12.7, 19.3, 18.8)
+    LIFT = rect(19.8, 12.7, 21.8, 14.7)
+    H, HB = 2.9, 3.5
+
+    def core(st, h, i):
+        m.wall(st, (16.1, 12.6), (16.1, 18.9), T, h, name="계단실 벽(서)")
+        m.wall(st, (19.5, 12.6), (19.5, 18.9), T, h, name="계단실 벽(동)")
+        m.wall(st, (21.9, 12.6), (21.9, 14.8), T, h, name="승강로 벽(동)")
+        m.wall(st, (19.6, 14.8), (22.0, 14.8), T, h, name="승강로 벽(북)")
+        m.space(st, f"{i}S", "계단실", STAIR, h)
+        m.space(st, f"{i}E", "승강기", LIFT, h)
+        r = round(h / 2 / 0.175 + 0.4999)
+        f1 = m.flight(st, (16.3, 12.9), (0.0, 1.0), 1.2, r, h / 2 / r, 0.26, 0.0, "계단 경간 1")
+        y2 = 12.9 + (r - 1) * 0.26
+        land = m.slab(st, rect(16.2, y2, 19.3, 18.8), h / 2, 0.2, name="계단참", predefined="LANDING")
+        f2 = m.flight(st, (19.2, y2), (0.0, -1.0), 1.2, r, h / 2 / r, 0.26, h / 2, "계단 경간 2")
+        r1 = m.railing(st, 17.65, 12.9, 17.85, y2, 0.0, h, 0.9, where="계단", contain=False)
+        m.stair(st, [f1, land, f2, r1])
+
+    # 지하 3층 주차장: 매트기초(두께 1.0m) 위 B3, B2·B1 슬래브에 계단·승강로 개구부
+    for k, name in enumerate(("지하3층", "지하2층", "지하1층")):
+        z = -HB * (3 - k)
+        st = m.storey(name, z)
+        if k == 0:
+            m.slab(st, rect(BX0, BY0, BX1, BY1), 0.0, 1.0, name="매트 기초", predefined="BASESLAB")
+        else:
+            m.slab(st, rect(BX0, BY0, BX1, BY1), 0.0, 0.25, holes=[STAIR, LIFT], name="지하 슬래브")
+        exterior_walls(m, st, BX0, BY0, BX1, BY1, 0.4, HB - 0.25)
+        m.space(st, f"B{3 - k}P", "지하주차장", rect(BX0 + 0.4, BY0 + 0.4, 16.0, BY1 - 0.4), HB - 0.25, use="주차")
+        core(st, HB - 0.25, f"B{3 - k}")
+
+    unit_rects = [rect(4.2, 4.2, 18.9, 10.4), rect(19.1, 4.2, 33.8, 10.4), rect(4.2, 12.6, 16.0, 18.8), rect(22.0, 12.6, 33.8, 18.8)]
+    for i in range(12):
+        st = m.storey(f"{i + 1}층", i * H)
+        if i == 0:
+            m.slab(st, rect(BX0, BY0, BX1, BY1), 0.0, 0.3, holes=[STAIR, LIFT], name="1층 바닥(지하 상부)")
+        else:
+            m.slab(st, rect(X0, Y0, X1, Y1), 0.0, 0.2, holes=[STAIR, LIFT], name="바닥 슬래브")
+        wh = H - 0.2
+        S, E, N, W = exterior_walls(m, st, X0, Y0, X1, Y1, T, wh)
+        m.wall(st, (4.2, 10.5), (33.8, 10.5), T, wh, name="복도 벽(남)")
+        m.wall(st, (16.0, 12.5), (16.0, 18.8), T, wh, name="세대 경계벽")
+        m.wall(st, (19.0, 4.2), (19.0, 10.4), T, wh, name="세대 경계벽")
+        m.space(st, f"{i + 1}00", "복도", rect(4.2, 10.6, 33.8, 12.5), wh)
+        core(st, wh, i + 1)
+        for n, pts in enumerate(unit_rects):
+            m.space(st, f"{i + 1}{n + 1:02d}", "거실", pts, wh, 세대번호=f"{i + 1}{n + 1:02d}호")
+        for a in (2.0, 9.0, 17.0, 24.0):
+            m.window(st, S, a, 3.6, 0.9, 1.5)
+        for a in (3.0, 7.5, 21.0, 26.0):
+            m.window(st, N, a, 3.6, 0.9, 1.5)
+        if i == 0:
+            m.door(st, W, 6.0, 1.2, 2.1, external=True, main=True, name="주출입구")
+    roof = m.storey("지붕층", 12 * H)
+    m.slab(roof, rect(X0, Y0, X1, Y1), 0.0, 0.2, holes=[STAIR, LIFT], name="지붕 슬래브", predefined="ROOF")
+    m.box_proxy(m.storeys["1층"], "조경", 4.0, 24.0, 44.0, 46.0, -0.3, 0.0, object_type="조경", 실용도="조경")
+    out = os.path.join(ROOT, "public", "bim", "demo-3-highrise.ifc")
+    m.save(out)
+    return out
+
+
 TRUTH = {
     "sample-a-compliant": {
         "storeys_above": 3, "storeys_below": 0, "height": 9.9,
@@ -421,7 +493,10 @@ TRUTH = {
 if __name__ == "__main__":
     os.makedirs(os.path.join(ROOT, "public", "bim"), exist_ok=True)
     os.makedirs(os.path.join(ROOT, "tests", "bim"), exist_ok=True)
-    for build in (build_a, build_b):
+    only = set(sys.argv[1:])  # e.g. `python3 scripts/make-test-ifc.py c` rebuilds only demo-3
+    for key, build in (("a", build_a), ("b", build_b), ("c", build_c)):
+        if only and key not in only:
+            continue
         p = build()
         print("wrote", os.path.relpath(p, ROOT), f"{os.path.getsize(p) / 1024:.0f} KB")
     for k, v in TRUTH.items():

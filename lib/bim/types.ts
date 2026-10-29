@@ -146,6 +146,43 @@ export type NorthFact = {
   minHigh?: NorthPoint;
 };
 
+/** Slab opening at one floor level (shaft, stair opening, void) — open while the frame goes up. */
+export type OpeningFact = {
+  center: Vec2;
+  /** Oriented rectangle corners [x0,y0,…,x3,y3]. */
+  corners: number[];
+  area: number;
+  width: number;
+  length: number;
+  perimeter: number;
+  kind: "승강로" | "계단" | "기타";
+  ref?: ElemRef;
+  /** Fall height to the level below (m); 0 at the lowest level. */
+  drop: number;
+};
+/** One floor level's slab outline for construction-stage fall protection (lib/bim/construction-facts.ts). */
+export type FallLevelFact = {
+  storeyId: number;
+  storey: string;
+  z: number;
+  /** Height of the slab edge above ground (m). */
+  edgeDrop: number;
+  slabArea: number;
+  /** Exterior slab edge length (m). */
+  edgeLength: number;
+  /** Exterior edge as axis-aligned segments [x0,y0,x1,y1,…] for the viewer. */
+  edges: number[];
+  openings: OpeningFact[];
+};
+export type ConstructionFacts = {
+  cell: number;
+  levels: FallLevelFact[];
+  /** Excavation depth below ground (m), pits excluded. */
+  dig: number;
+  digSource: "foundation" | "slab" | "none";
+  digRef?: ElemRef;
+};
+
 export type BimFacts = {
   version: 1;
   source: { file: string; schema: string; project: string; application?: string; elements: number; triangles: number };
@@ -179,6 +216,8 @@ export type BimFacts = {
   egress: EgressFact[];
   north: NorthFact;
   quality: { level: "info" | "warn"; text: string }[];
+  /** Construction-stage geometry (absent in facts from older clients). */
+  construction?: ConstructionFacts;
 };
 
 // ───────────────────────────── viewer-only overlays ─────────────────────────────
