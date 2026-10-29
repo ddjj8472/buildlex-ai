@@ -19,7 +19,7 @@ function headers() {
   return { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY || "" };
 }
 
-type JSONOpts = { model?: string; timeoutMs?: number; maxTokens?: number; signal?: AbortSignal; images?: InlineImage[]; /** Keep "thinking" short: thinkingLevel "low" on Gemini 3 / *-latest, thinkingBudget 1024 on 2.5. Dropped if the model rejects it. */ thinking?: "low" };
+type JSONOpts = { model?: string; timeoutMs?: number; maxTokens?: number; signal?: AbortSignal; images?: InlineImage[]; /** Keep "thinking" short: thinkingLevel "low" on Gemini 3 / *-latest, thinkingBudget 1024 on 2.5. Dropped if the model rejects it. */ thinking?: "low"; temperature?: number };
 
 export async function generateJSON<T>(prompt: string, opts: JSONOpts = {}): Promise<T> {
   // Try the requested (fast) model, then the main model, then aliases — but only for
@@ -53,7 +53,7 @@ async function generateJSONOnce<T>(prompt: string, opts: JSONOpts = {}): Promise
     body: JSON.stringify({
       contents: [{ role: "user", parts: [...(opts.images || []).map(i => ({ inlineData: i })), { text: prompt }] }],
       generationConfig: {
-        temperature: 0, responseMimeType: "application/json", maxOutputTokens: opts.maxTokens ?? 4096,
+        temperature: opts.temperature ?? 0, responseMimeType: "application/json", maxOutputTokens: opts.maxTokens ?? 4096,
         // Optional: cap "thinking" for structured calls (e.g. GEMINI_JSON_THINKING_BUDGET=0 on 2.5 models).
         ...(opts.thinking ? { thinkingConfig: /gemini-2\./.test(opts.model || MODEL) ? { thinkingBudget: 1024 } : { thinkingLevel: opts.thinking } }
           : process.env.GEMINI_JSON_THINKING_BUDGET ? { thinkingConfig: { thinkingBudget: Number(process.env.GEMINI_JSON_THINKING_BUDGET) } } : {}),

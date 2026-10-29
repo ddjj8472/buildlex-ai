@@ -58,19 +58,22 @@ async function relevantInterpretations(a: QueryAnalysis, holdout: string[] = [])
 }
 
 /** Reasoning models: a stronger model and the default one run in parallel; a third breaks a tie. */
-const REASON_MODELS = (process.env.GEMINI_REASON_MODELS || [FALLBACK_MODELS[0] || "gemini-flash-latest", MODEL].join(",")).split(",").map(x => x.trim()).filter(Boolean);
+// Voters for the legal analysis: "model" or "model@temperature". Default = main model, fast model, and a
+// second sample of the main model at temperature 0.7 (self-consistency). The slower flash alias timed out
+// at the 22 s budget in most runs, so it is not a default voter.
+const REASON_VOTERS = (process.env.GEMINI_REASON_MODELS || `${MODEL},${FAST_MODEL},${MODEL}@0.7`).split(",").map(x => x.trim()).filter(Boolean)
+  .map(x => { const [model, t] = x.split("@"); return { model, temperature: t ? Number(t) : 0 }; });
 
 async function runReasoning(query: string, evidence: Evidence[], interpretations: Interpretation[], signal: AbortSignal | undefined, elapsed: () => number): Promise<{ c: Consolidated | null; errors: string[] }> {
   const prompt = reasonPrompt({ query, evidenceText: formatEvidence(evidence, 24000, query), interpretations });
   const budget = Math.min(22000, 40000 - elapsed());
   const errors: string[] = [];
   if (budget < 6000) return { c: null, errors: ["시간 부족"] };
-  const run = (model: string, timeoutMs: number) => generateJSON<unknown>(prompt, { model, timeoutMs, signal, maxTokens: 8192, thinking: "low" })
+  const run = (model: string, temperature: number, timeoutMs: number) => generateJSON<unknown>(prompt, { model, temperature, timeoutMs, signal, maxTokens: 8192, thinking: "low" })
     .then(raw => ({ model, a: ground(parseAnalysis(raw), evidence) }))
     .catch(e => { errors.push(`${model}: ${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`); throw e; });
-  // Self-consistency: three independent analyses in parallel (strong + two lite models), majority vote per issue.
-  const models = [...new Set([...REASON_MODELS, FAST_MODEL])].slice(0, 3);
-  const settled = await Promise.allSettled(models.map(m => run(m, budget)));
+  // Self-consistency: independent analyses in parallel, majority vote per issue.
+  const settled = await Promise.allSettled(REASON_VOTERS.slice(0, 3).map(v => run(v.model, v.temperature, budget)));
   const runs = settled.flatMap(r => (r.status === "fulfilled" ? [r.value] : []));
   return { c: consolidate(runs), errors };
 }
