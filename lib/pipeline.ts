@@ -6,7 +6,8 @@ import { findChunk, loadNational, resolveRegion } from "./corpus.ts";
 import { fetchAppendix, lawApiEnabled, searchInterpretations } from "./law-api.ts";
 import { FALLBACK_MODELS, FAST_MODEL, MODEL, generateJSON, hasLLM, isMock, streamText } from "./llm.ts";
 import { parseCitations, missingLaws } from "./cite.ts";
-import { answerPrompt, analysisPrompt, evaluationPrompt, rerankPrompt, type Note, type Turn } from "./prompts.ts";
+import { consolidate, formatAnalysis, ground, needsReasoning, parseAnalysis, reasonPrompt, type Consolidated } from "./reason.ts";
+import { answerPrompt, analysisPrompt, formatEvidence, evaluationPrompt, rerankPrompt, type Note, type Turn } from "./prompts.ts";
 import { hybridSearch, type Reranker } from "./search.ts";
 import { lawKeyOf, formatDate } from "./text.ts";
 import type { EvalMode, Evidence, EvidenceView, Interpretation, QueryAnalysis, SiteFacts, StageId, StreamEvent } from "./types.ts";
@@ -54,6 +55,25 @@ async function relevantInterpretations(a: QueryAnalysis, holdout: string[] = [])
     .filter(v => v.s >= 1.5)
     .sort((p, q) => q.s - p.s);
   return scored.slice(0, 3).map(v => v.x);
+}
+
+/** Reasoning models: a stronger model and the default one run in parallel; a third breaks a tie. */
+const REASON_MODELS = (process.env.GEMINI_REASON_MODELS || [FALLBACK_MODELS[0] || "gemini-flash-latest", MODEL].join(",")).split(",").map(x => x.trim()).filter(Boolean);
+
+async function runReasoning(query: string, evidence: Evidence[], interpretations: Interpretation[], signal: AbortSignal | undefined, elapsed: () => number): Promise<Consolidated | null> {
+  const prompt = reasonPrompt({ query, evidenceText: formatEvidence(evidence, 30000, query), interpretations });
+  const budget = Math.min(18000, 38000 - elapsed());
+  if (budget < 6000) return null;
+  const run = (model: string, timeoutMs: number) => generateJSON<unknown>(prompt, { model, timeoutMs, signal, maxTokens: 4096 })
+    .then(raw => ({ model, a: ground(parseAnalysis(raw), evidence) }));
+  const first = await Promise.allSettled([...new Set(REASON_MODELS)].slice(0, 2).map(m => run(m, budget)));
+  const runs = first.flatMap(r => (r.status === "fulfilled" ? [r.value] : []));
+  const split = (c: Consolidated | null) => !!c && c.issues.some(i => !i.agree);
+  if (runs.length === 2 && split(consolidate(runs)) && elapsed() < 28000) {
+    const third = await run(FAST_MODEL, Math.min(10000, 38000 - elapsed())).catch(() => null);
+    if (third) runs.push(third);
+  }
+  return consolidate(runs);
 }
 
 async function stage<T>(emit: Emit, id: StageId, fn: () => Promise<T>, detail?: (r: T) => string): Promise<T> {
@@ -214,6 +234,13 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
   emit({ type: "evidence", evidence: evidence.map(e => toView(e, effRegion?.key)), interpretations, notes: notes.map(n => ({ title: n.title, text: n.text })) });
   for (const w of warnings) emit({ type: "warning", message: w });
 
+  // 4. 법리 분석 — independent syllogistic analyses vote; ungrounded conditions are dropped (lib/reason.ts).
+  let reasoning: Consolidated | null = null;
+  if (hasLLM() && !isMock() && needsReasoning(input.query) && elapsed() < 24000) {
+    reasoning = await stage(emit, "reason", () => runReasoning(input.query, evidence, interpretations, input.signal, elapsed),
+      r => r ? `독립 분석 ${r.runs}개 · ${r.issues.every(i => i.agree) ? "결론 일치" : "엇갈림 → 다수결"}${r.issues.some(i => i.dropped.length) ? " · 근거 없는 조건 제외" : ""}` : "생략").catch(() => null);
+  } else emit({ type: "stage", id: "reason", status: "skipped", detail: needsReasoning(input.query) ? "시간 부족" : "판단형 질문 아님" });
+
   const generate = async (): Promise<string> => {
     let answer = "";
     if (isMock()) {
@@ -222,7 +249,7 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
       answer = extractiveAnswer(evidence, analysis);
       emit({ type: "delta", text: answer });
     } else {
-      const prompt = answerPrompt({ query: input.query, analysis, region: effRegion?.label || "", evidence, interpretations, notes, warnings, history: input.history || [], missingLaws: absent });
+      const prompt = answerPrompt({ query: input.query, analysis, region: effRegion?.label || "", evidence, interpretations, notes, warnings, history: input.history || [], missingLaws: absent, reasoning: reasoning ? formatAnalysis(reasoning) : undefined });
       // Retry transient overload (429/503) with backoff, then fall back to other models,
       // and finally to an extractive answer so the retrieved evidence is never lost.
       const models = [...new Set([MODEL, ...FALLBACK_MODELS])];
