@@ -6,7 +6,8 @@ import { findChunk, loadNational, resolveRegion } from "./corpus.ts";
 import { fetchAppendix, lawApiEnabled, searchInterpretations } from "./law-api.ts";
 import { FALLBACK_MODELS, FAST_MODEL, MODEL, generateJSON, hasLLM, isMock, streamText } from "./llm.ts";
 import { parseCitations, missingLaws } from "./cite.ts";
-import { answerPrompt, analysisPrompt, evaluationPrompt, rerankPrompt, type Note, type Turn } from "./prompts.ts";
+import { consolidate, formatAnalysis, ground, needsReasoning, parseAnalysis, reasonPrompt, type Consolidated } from "./reason.ts";
+import { answerPrompt, analysisPrompt, formatEvidence, evaluationPrompt, rerankPrompt, type Note, type Turn } from "./prompts.ts";
 import { hybridSearch, type Reranker } from "./search.ts";
 import { lawKeyOf, formatDate } from "./text.ts";
 import type { EvalMode, Evidence, EvidenceView, Interpretation, QueryAnalysis, SiteFacts, StageId, StreamEvent } from "./types.ts";
@@ -54,6 +55,35 @@ async function relevantInterpretations(a: QueryAnalysis, holdout: string[] = [])
     .filter(v => v.s >= 1.5)
     .sort((p, q) => q.s - p.s);
   return scored.slice(0, 3).map(v => v.x);
+}
+
+/** Reasoning models: a stronger model and the default one run in parallel; a third breaks a tie. */
+// Voters for the legal analysis: "model" or "model@temperature". Default = main model, fast model, and a
+// second sample of the main model at temperature 0.7 (self-consistency). The slower flash alias timed out
+// at the 22 s budget in most runs, so it is not a default voter.
+const REASON_VOTERS = (process.env.GEMINI_REASON_MODELS || `${MODEL},${FAST_MODEL},${MODEL}@0.7`).split(",").map(x => x.trim()).filter(Boolean)
+  .map(x => { const [model, t] = x.split("@"); return { model, temperature: t ? Number(t) : 0 }; });
+
+async function runReasoning(query: string, evidence: Evidence[], interpretations: Interpretation[], signal: AbortSignal | undefined, elapsed: () => number): Promise<{ c: Consolidated | null; errors: string[] }> {
+  const prompt = reasonPrompt({ query, evidenceText: formatEvidence(evidence, 24000, query), interpretations });
+  const budget = Math.min(22000, 40000 - elapsed());
+  const errors: string[] = [];
+  if (budget < 6000) return { c: null, errors: ["시간 부족"] };
+  const run = (model: string, temperature: number, timeoutMs: number) => generateJSON<unknown>(prompt, { model, temperature, timeoutMs, signal, maxTokens: 8192, thinking: "low" })
+    .then(raw => {
+      const a = ground(parseAnalysis(raw), evidence);
+      if (!a.issues.length) {
+        const keys = (o: unknown) => (o && typeof o === "object" ? Object.keys(o).slice(0, 6).join("/") : typeof o);
+        const first = raw && typeof raw === "object" ? Object.values(raw as object)[0] : undefined;
+        errors.push(`${model}: 분석 형식 불일치(${keys(raw)} → ${Array.isArray(first) ? keys(first[0]) : keys(first)})`);
+      }
+      return { model, a };
+    })
+    .catch(e => { errors.push(`${model}: ${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`); throw e; });
+  // Self-consistency: independent analyses in parallel, majority vote per issue.
+  const settled = await Promise.allSettled(REASON_VOTERS.slice(0, 3).map(v => run(v.model, v.temperature, budget)));
+  const runs = settled.flatMap(r => (r.status === "fulfilled" ? [r.value] : []));
+  return { c: consolidate(runs), errors };
 }
 
 async function stage<T>(emit: Emit, id: StageId, fn: () => Promise<T>, detail?: (r: T) => string): Promise<T> {
@@ -214,6 +244,14 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
   emit({ type: "evidence", evidence: evidence.map(e => toView(e, effRegion?.key)), interpretations, notes: notes.map(n => ({ title: n.title, text: n.text })) });
   for (const w of warnings) emit({ type: "warning", message: w });
 
+  // 4. 법리 분석 — independent syllogistic analyses vote; ungrounded conditions are dropped (lib/reason.ts).
+  let reasoning: Consolidated | null = null;
+  if (hasLLM() && !isMock() && needsReasoning(input.query) && elapsed() < 24000) {
+    const r = await stage(emit, "reason", () => runReasoning(input.query, evidence, interpretations, input.signal, elapsed),
+      ({ c, errors }) => [c ? `독립 분석 ${c.runs}개 · ${c.issues.every(i => i.agree) ? "결론 일치" : "엇갈림 → 다수결"}${c.issues.some(i => i.dropped.length) ? " · 근거 없는 조건 제외" : ""}` : "분석 실패", errors.length ? `(${errors.join(" | ")})` : ""].filter(Boolean).join(" ")).catch(() => null);
+    reasoning = r?.c ?? null;
+  } else emit({ type: "stage", id: "reason", status: "skipped", detail: needsReasoning(input.query) ? "시간 부족" : "판단형 질문 아님" });
+
   const generate = async (): Promise<string> => {
     let answer = "";
     if (isMock()) {
@@ -222,7 +260,7 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
       answer = extractiveAnswer(evidence, analysis);
       emit({ type: "delta", text: answer });
     } else {
-      const prompt = answerPrompt({ query: input.query, analysis, region: effRegion?.label || "", evidence, interpretations, notes, warnings, history: input.history || [], missingLaws: absent });
+      const prompt = answerPrompt({ query: input.query, analysis, region: effRegion?.label || "", evidence, interpretations, notes, warnings, history: input.history || [], missingLaws: absent, reasoning: reasoning ? formatAnalysis(reasoning) : undefined });
       // Retry transient overload (429/503) with backoff, then fall back to other models,
       // and finally to an extractive answer so the retrieved evidence is never lost.
       const models = [...new Set([MODEL, ...FALLBACK_MODELS])];

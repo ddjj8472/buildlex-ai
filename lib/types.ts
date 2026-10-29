@@ -112,7 +112,7 @@ export type Interpretation = {
 
 export type EvalMode = "none" | "check" | "auto";
 
-export type StageId = "analyze" | "retrieve" | "expand" | "answer" | "verify" | "evaluate";
+export type StageId = "analyze" | "retrieve" | "expand" | "reason" | "answer" | "verify" | "evaluate";
 
 export type StreamEvent =
   | { type: "stage"; id: StageId; status: "running" | "done" | "skipped" | "error"; detail?: string; ms?: number }

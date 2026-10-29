@@ -34,6 +34,7 @@ export const STAGES: { id: StageId; label: string }[] = [
   { id: "analyze", label: "질의 분석" },
   { id: "retrieve", label: "법령 검색" },
   { id: "expand", label: "연결 조문" },
+  { id: "reason", label: "법리 분석" },
   { id: "answer", label: "답변 생성" },
   { id: "verify", label: "인용 검증" },
   { id: "evaluate", label: "품질 평가" },
