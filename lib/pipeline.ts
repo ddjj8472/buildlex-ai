@@ -72,7 +72,11 @@ async function runReasoning(query: string, evidence: Evidence[], interpretations
   const run = (model: string, temperature: number, timeoutMs: number) => generateJSON<unknown>(prompt, { model, temperature, timeoutMs, signal, maxTokens: 8192, thinking: "low" })
     .then(raw => {
       const a = ground(parseAnalysis(raw), evidence);
-      if (!a.issues.length) errors.push(`${model}: 분석 형식 불일치`);
+      if (!a.issues.length) {
+        const keys = (o: unknown) => (o && typeof o === "object" ? Object.keys(o).slice(0, 6).join("/") : typeof o);
+        const first = raw && typeof raw === "object" ? Object.values(raw as object)[0] : undefined;
+        errors.push(`${model}: 분석 형식 불일치(${keys(raw)} → ${Array.isArray(first) ? keys(first[0]) : keys(first)})`);
+      }
       return { model, a };
     })
     .catch(e => { errors.push(`${model}: ${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`); throw e; });
