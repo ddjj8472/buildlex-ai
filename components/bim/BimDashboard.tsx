@@ -14,6 +14,7 @@ import type { SiteInfo } from "@/lib/land/types";
 import type { BimFacts, BimIssue, BimReviewResult, BimRuleResult, EgressField, SpaceUse, Vec3 } from "@/lib/bim/types";
 import type { CheckStatus, FieldKey, FieldValue, ProjectValues } from "@/lib/review/types";
 import { buildBcf, type BcfTopic } from "./bcf";
+import ConstructionPanel from "./ConstructionPanel";
 import type { ViewerElement, WorkerModel, WorkerOut } from "./ifc-worker";
 import type { ViewerHandle } from "./Viewer3D";
 
@@ -52,7 +53,8 @@ export default function BimDashboard() {
   const [values, setValues] = useState<ProjectValues>({});
   const [dirty, setDirty] = useState(false);
   const [region, setRegion] = useState("");
-  const [tab, setTab] = useState<"rules" | "site" | "values" | "report" | "model">("rules");
+  const [tab, setTab] = useState<"rules" | "construction" | "site" | "values" | "report" | "model">("rules");
+  const [csMd, setCsMd] = useState("");
   const [site, setSite] = useState<SiteInfo | null>(null);
   const [siteDirty, setSiteDirty] = useState(false);
   const siteRef = useRef<SiteInfo | null>(null);
@@ -266,7 +268,7 @@ export default function BimDashboard() {
               </div>
             )}
             <div className="tabs rv-tabs" role="tablist">
-              {([["rules", "검토 결과"], ["site", "대지"], ["values", "건축개요"], ["report", "보완요구서"], ["model", "모델 정보"]] as const).map(([k, l]) => (
+              {([["rules", "검토 결과"], ["construction", "시공 단계"], ["site", "대지"], ["values", "건축개요"], ["report", "보완요구서"], ["model", "모델 정보"]] as const).map(([k, l]) => (
                 <button key={k} type="button" role="tab" aria-selected={tab === k} className={`tab${tab === k ? " on" : ""}`} onClick={() => setTab(k)}>{l}</button>
               ))}
             </div>
@@ -330,6 +332,16 @@ export default function BimDashboard() {
               </div>
             )}
 
+            {facts && (
+              <div hidden={tab !== "construction"}>
+                <ConstructionPanel facts={facts} values={values} selKey={sel?.key} onResult={r => setCsMd(r.md)} onFocus={i => {
+                  setSel({ ids: i.refs.map(x => x.id), at: i.at, key: i.id });
+                  const sid = i.storey ? storeyByName.get(i.storey) : undefined;
+                  setStorey(sid ?? null);
+                }} />
+              </div>
+            )}
+
             {tab === "site" && (
               <div>
                 <SitePanel site={site} onChange={changeSite} use={typeof values.주용도?.value === "string" ? values.주용도.value : undefined} compact />
@@ -354,11 +366,11 @@ export default function BimDashboard() {
               <div className="bim-report">
                 <div className="rv-files">
                   <button type="button" className="ghost rv-file" disabled={!!exporting} onClick={() => void exportBcf()}>BCF 이슈 (.bcfzip)</button>
-                  <button type="button" className="ghost rv-file" onClick={() => download("bim-corrections.md", result.md, "text/markdown")}>보완요구서 (.md)</button>
+                  <button type="button" className="ghost rv-file" onClick={() => download("bim-corrections.md", csMd ? `${result.md}\n\n${csMd}` : result.md, "text/markdown")}>보완요구서 (.md)</button>
                   <button type="button" className="ghost rv-file" onClick={() => download("bim-review.json", JSON.stringify({ facts, result }, null, 2))}>검토 결과 (.json)</button>
                 </div>
                 <p className="rv-help">BCF 파일은 Revit(BIMcollab Zoom·Revizto·BCF Manager 플러그인), Solibri, Navisworks에서 열면 문제 요소가 선택된 시점으로 이동합니다.</p>
-                <Markdown text={result.md.replace(/^\|.*$/gm, "").replace(/`/g, "")} max={0} onCite={() => {}} />
+                <Markdown text={(csMd ? `${result.md}\n\n${csMd}` : result.md).replace(/^\|.*$/gm, "").replace(/`/g, "")} max={0} onCite={() => {}} />
               </div>
             )}
 
