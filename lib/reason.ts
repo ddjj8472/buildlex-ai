@@ -88,7 +88,14 @@ const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.fil
 
 /** Defensive parse of the model's JSON (shape drift between models is common). */
 export function parseAnalysis(raw: unknown): LegalAnalysis {
-  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  // Models sometimes return the issue list bare, a single issue, or the object wrapped in one key.
+  let r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  if (Array.isArray(raw)) r = { issues: raw };
+  else if (!Array.isArray(r.issues) && "conclusion" in r) r = { issues: [r] };
+  else if (!Array.isArray(r.issues)) {
+    const inner = Object.values(r).find(v => v && typeof v === "object" && (Array.isArray(v) || Array.isArray((v as Record<string, unknown>).issues)));
+    if (inner) r = Array.isArray(inner) ? { issues: inner } : inner as Record<string, unknown>;
+  }
   const issues = arr(r.issues).slice(0, 4).map((x, k): ReasonIssue => {
     const c = str(x.conclusion, 10);
     return {

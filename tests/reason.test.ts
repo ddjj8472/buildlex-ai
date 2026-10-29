@@ -43,3 +43,11 @@ test("parseAnalysis tolerates shape drift; needsReasoning picks judgment questio
   assert.ok(needsReasoning("대수선허가가 포함되는지 여부"));
   assert.ok(!needsReasoning("건폐율이 뭔가요"));
 });
+
+test("parseAnalysis accepts a bare issue list, a single issue, or a wrapped object", () => {
+  const one = { label: "가", issue: "x", conclusion: "예", answer: "y" };
+  assert.equal(parseAnalysis([one]).issues.length, 1);
+  assert.equal(parseAnalysis(one).issues.length, 1);
+  assert.equal(parseAnalysis({ analysis: { issues: [one] } }).issues.length, 1);
+  assert.equal(parseAnalysis({ result: [one, one] }).issues.length, 2);
+});

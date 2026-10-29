@@ -70,7 +70,11 @@ async function runReasoning(query: string, evidence: Evidence[], interpretations
   const errors: string[] = [];
   if (budget < 6000) return { c: null, errors: ["시간 부족"] };
   const run = (model: string, temperature: number, timeoutMs: number) => generateJSON<unknown>(prompt, { model, temperature, timeoutMs, signal, maxTokens: 8192, thinking: "low" })
-    .then(raw => ({ model, a: ground(parseAnalysis(raw), evidence) }))
+    .then(raw => {
+      const a = ground(parseAnalysis(raw), evidence);
+      if (!a.issues.length) errors.push(`${model}: 분석 형식 불일치`);
+      return { model, a };
+    })
     .catch(e => { errors.push(`${model}: ${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`); throw e; });
   // Self-consistency: independent analyses in parallel, majority vote per issue.
   const settled = await Promise.allSettled(REASON_VOTERS.slice(0, 3).map(v => run(v.model, v.temperature, budget)));
