@@ -9,6 +9,7 @@
 //   • 보행거리           Dijkstra on a plan grid sliced at 1.1 m (walls/windows block, doors open)
 //   • 정북 이격          ray from every building vertex toward true north to the site boundary
 //   • 계단·복도·채광·주차 per-element shapes (min-area rectangles, tread clustering, window ↔ room)
+import { constructionFacts } from "./construction-facts.ts";
 import { asBool, classifySpace, krValue, KR_PROPS } from "./convention.ts";
 import { bottomFace, centerOf, components, convexHull, countCells, Grid, median, minAreaRect, perimeter, planDistance, polygonArea, rasterSegments, rasterTriangles, rayToPolygon, rectWidth, slice, walkDistances, xyPoints, type Mesh } from "./geometry.ts";
 import type { BimFacts, DoorFact, EgressFact, EgressField, ElemRef, FlightFact, NorthPoint, ParkingFact, ParsedElement, ParsedModel, PropValue, RailingFact, SpaceFact, StairFact, StoreyFact, Vec2, Vec3 } from "./types.ts";
@@ -359,6 +360,12 @@ export function analyze(model: ParsedModel, opts: AnalyzeOptions = {}): { facts:
     } else north.reason = "건물 정점에서 정북 방향으로 대지경계선을 찾지 못했습니다.";
   } else north.reason = "대지경계선이 없습니다.";
 
+  // ── 시공 단계: slab edges, openings, excavation depth ──
+  report("시공 단계 형상", 0.97);
+  let construction: BimFacts["construction"];
+  try { construction = constructionFacts({ elements: elements.filter(e => !isParking(e) && !isLandscape(e) && !isBoundary(e)), storeys: storeyFacts, groundZ, spaces: spaceFacts, ref }); }
+  catch (e) { quality.push({ level: "info", text: `시공 단계 형상 분석을 건너뛰었습니다: ${e instanceof Error ? e.message : String(e)}` }); }
+
   const triangles = elements.reduce((a, e) => a + (e.indices?.length || 0) / 3, 0);
   const facts: BimFacts = {
     version: 1,
@@ -372,7 +379,7 @@ export function analyze(model: ParsedModel, opts: AnalyzeOptions = {}): { facts:
       grossFloorArea: round(gfa, 2), farFloorArea: round(farArea, 2), farExcluded,
       landscapeArea, landscape: landscapeEls.map(ref),
     },
-    storeys: storeyFacts, spaces: spaceFacts, stairs, doors, railings, parking, egress, north, quality,
+    storeys: storeyFacts, spaces: spaceFacts, stairs, doors, railings, parking, egress, north, quality, construction,
   };
   report("완료", 1);
   return { facts, fields };

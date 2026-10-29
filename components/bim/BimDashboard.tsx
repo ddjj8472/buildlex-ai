@@ -15,6 +15,7 @@ import type { BimFacts, BimIssue, BimReviewResult, BimRuleResult, EgressField, S
 import type { CheckStatus, FieldKey, FieldValue, ProjectValues } from "@/lib/review/types";
 import { buildBcf, type BcfTopic } from "./bcf";
 import ConstructionPanel from "./ConstructionPanel";
+import type { GuardOverlay } from "./Viewer3D";
 import type { ViewerElement, WorkerModel, WorkerOut } from "./ifc-worker";
 import type { ViewerHandle } from "./Viewer3D";
 
@@ -25,6 +26,7 @@ const SAMPLES = [
   { file: "/bim/demo-2-fixed.ifc", label: "데모 2 · 다세대 수정안(Revit)" },
   { file: "/bim/sample-a-compliant.ifc", label: "샘플 A · 근린생활시설(적합)" },
   { file: "/bim/sample-b-violations.ifc", label: "샘플 B · 공동주택(위반 포함)" },
+  { file: "/bim/demo-3-highrise.ifc", label: "데모 3 · 고층 아파트(시공 단계)" },
 ];
 const STATUS: Record<CheckStatus, { ko: string; cls: string }> = {
   FAIL: { ko: "부적합", cls: "err" }, UNCLEAR: { ko: "확인 필요", cls: "warn" }, PASS: { ko: "적합", cls: "ok" }, NOT_APPLICABLE: { ko: "해당 없음", cls: "na" },
@@ -55,6 +57,7 @@ export default function BimDashboard() {
   const [region, setRegion] = useState("");
   const [tab, setTab] = useState<"rules" | "construction" | "site" | "values" | "report" | "model">("rules");
   const [csMd, setCsMd] = useState("");
+  const [guards, setGuards] = useState<GuardOverlay | null>(null);
   const [site, setSite] = useState<SiteInfo | null>(null);
   const [siteDirty, setSiteDirty] = useState(false);
   const siteRef = useRef<SiteInfo | null>(null);
@@ -239,7 +242,7 @@ export default function BimDashboard() {
               {sel && <button type="button" className="ghost" onClick={() => setSel(null)}>강조 해제</button>}
             </div>
             <div className="bim-stage">
-              <Viewer3D ref={viewer} model={model} spaceUse={spaceUse} storey={storey} highlight={sel} xray={xray} showSpaces={showSpaces} section={section} heat={heat} heatLimit={heatLimit} envelope={envelope} onPick={setPicked} />
+              <Viewer3D ref={viewer} model={model} spaceUse={spaceUse} storey={storey} highlight={sel} xray={xray} showSpaces={showSpaces} section={section} heat={heat} heatLimit={heatLimit} envelope={envelope} guards={tab === "construction" ? guards : null} onPick={setPicked} />
               {heat && <div className="bim-legend"><span className="g" />0m<span className="y" />{Math.round(heatLimit * 0.6)}m<span className="r" />{heatLimit}m 초과<span className="p" />경로 없음</div>}
               {picked && (
                 <div className="bim-pick">
@@ -334,7 +337,7 @@ export default function BimDashboard() {
 
             {facts && (
               <div hidden={tab !== "construction"}>
-                <ConstructionPanel facts={facts} values={values} selKey={sel?.key} onResult={r => setCsMd(r.md)} onFocus={i => {
+                <ConstructionPanel facts={facts} values={values} selKey={sel?.key} onResult={r => setCsMd(r.md)} onGuards={setGuards} onStorey={id => { setStorey(id); setSel(null); }} onFocus={i => {
                   setSel({ ids: i.refs.map(x => x.id), at: i.at, key: i.id });
                   const sid = i.storey ? storeyByName.get(i.storey) : undefined;
                   setStorey(sid ?? null);

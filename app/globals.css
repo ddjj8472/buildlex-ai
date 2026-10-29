@@ -467,3 +467,29 @@ button.badge:hover { border-color: var(--accent); color: var(--accent); }
 .bim-cs-row .need { color: var(--warn); font-weight: 650; }
 .bim-cs-row .need::after { content: " · 입력 필요"; font-weight: 500; font-size: 11.5px; }
 .bim-cs-count { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 2px; }
+.bim-cs-q > summary { cursor: pointer; font-weight: 650; font-size: 13.5px; color: var(--ink); list-style-position: inside; }
+.bim-cs-q > summary small { font-weight: 500; color: var(--ink-3); margin-left: 6px; }
+.bim-cs-q[open] > summary { margin-bottom: 4px; }
+.bim-cs-field { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-3); }
+.bim-cs-field input { width: 9.5em; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; }
+.bim-cs-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 10px 0 4px; }
+.bim-cs-qty { margin: 8px 0; font-size: 12.5px; }
+.bim-cs-qty td:not(:first-child), .bim-cs-qty th:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.bim-cs-qty tr.sum td { font-weight: 650; border-top: 1px solid var(--line-strong); }
+.bim-cs-ask { display: inline-block; margin-top: 8px; font-size: 12.5px; color: var(--accent-ink); text-decoration: none; }
+.bim-cs-ask:hover { text-decoration: underline; }
+.bim-cs-foot { margin-top: 12px; font-size: 12px; }
+.bim-seq { list-style: none; margin: 8px 0 0; padding: 0 0 0 14px; border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.bim-seq-step { position: relative; }
+.bim-seq-step::before { content: ""; position: absolute; left: -21px; top: 11px; width: 10px; height: 10px; border-radius: 50%; background: var(--surface); border: 2px solid var(--line-strong); }
+.bim-seq-step.excavation::before, .bim-seq-step.foundation::before { border-color: var(--warn); }
+.bim-seq-step.frame::before, .bim-seq-step.roof::before { border-color: var(--accent); }
+.bim-seq-step.completion::before { border-color: var(--ok); }
+.bim-seq-step.on::before { background: var(--accent); border-color: var(--accent); }
+.bim-seq-head { width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.bim-seq-step.on .bim-seq-head { border-color: var(--accent-line); background: var(--accent-soft); }
+.bim-seq-kind { flex: none; font-size: 11px; font-weight: 650; color: var(--ink-3); min-width: 2.6em; }
+.bim-seq-head .chip { margin-left: auto; }
+.chip.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.bim-seq-body { padding: 6px 4px 2px 10px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--ink-2); }
+.bim-seq-duty small { color: var(--ink-3); }
