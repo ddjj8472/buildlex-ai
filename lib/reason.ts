@@ -91,7 +91,11 @@ const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.fil
 export function parseAnalysis(raw: unknown): LegalAnalysis {
   // Models sometimes return the issue list bare, a single issue, or the object wrapped in one key.
   let r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  if (Array.isArray(raw)) r = { issues: raw };
+  if (Array.isArray(raw)) {
+    // e.g. [{"issues":[…]}] — one or more analysis objects wrapped in an array.
+    const wrapped = raw.filter(x => x && typeof x === "object" && Array.isArray((x as Record<string, unknown>).issues));
+    r = { issues: wrapped.length ? wrapped.flatMap(x => (x as { issues: unknown[] }).issues) : raw };
+  }
   else if (!Array.isArray(r.issues) && "conclusion" in r) r = { issues: [r] };
   else if (!Array.isArray(r.issues)) {
     const inner = Object.values(r).find(v => v && typeof v === "object" && (Array.isArray(v) || Array.isArray((v as Record<string, unknown>).issues)));

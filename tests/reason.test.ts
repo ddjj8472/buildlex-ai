@@ -54,4 +54,5 @@ test("parseAnalysis accepts a bare issue list, a single issue, or a wrapped obje
   assert.equal(parseAnalysis(one).issues.length, 1);
   assert.equal(parseAnalysis({ analysis: { issues: [one] } }).issues.length, 1);
   assert.equal(parseAnalysis({ result: [one, one] }).issues.length, 2);
+  assert.equal(parseAnalysis([{ issues: [one, one] }]).issues.length, 2);
 });
