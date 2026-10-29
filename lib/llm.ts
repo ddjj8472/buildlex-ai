@@ -19,7 +19,7 @@ function headers() {
   return { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY || "" };
 }
 
-type JSONOpts = { model?: string; timeoutMs?: number; maxTokens?: number; signal?: AbortSignal; images?: InlineImage[]; /** Cap on "thinking" tokens (2.5/3 models); dropped if the model rejects it. */ thinkingBudget?: number };
+type JSONOpts = { model?: string; timeoutMs?: number; maxTokens?: number; signal?: AbortSignal; images?: InlineImage[]; /** Keep "thinking" short: thinkingLevel "low" on Gemini 3 / *-latest, thinkingBudget 1024 on 2.5. Dropped if the model rejects it. */ thinking?: "low" };
 
 export async function generateJSON<T>(prompt: string, opts: JSONOpts = {}): Promise<T> {
   // Try the requested (fast) model, then the main model, then aliases — but only for
@@ -35,8 +35,8 @@ export async function generateJSON<T>(prompt: string, opts: JSONOpts = {}): Prom
     catch (e) {
       last = e;
       const msg = e instanceof Error ? `${e.name} ${e.message}` : String(e);
-      if (opts.thinkingBudget !== undefined && /\b400\b/.test(msg) && /thinking/i.test(msg)) {
-        try { return await generateJSONOnce<T>(prompt, { ...opts, thinkingBudget: undefined, model, timeoutMs: deadline - Date.now() }); } catch (e2) { last = e2; }
+      if (opts.thinking && /\b400\b/.test(msg) && /thinking/i.test(msg)) {
+        try { return await generateJSONOnce<T>(prompt, { ...opts, thinking: undefined, model, timeoutMs: deadline - Date.now() }); } catch (e2) { last = e2; }
       }
       if (opts.signal?.aborted || /timeout|abort/i.test(msg)) break;
       if (!/404|429|500|502|503|504|NOT_FOUND|UNAVAILABLE|high demand|RESOURCE_EXHAUSTED|빈 응답|JSON/i.test(msg)) break;
@@ -55,7 +55,7 @@ async function generateJSONOnce<T>(prompt: string, opts: JSONOpts = {}): Promise
       generationConfig: {
         temperature: 0, responseMimeType: "application/json", maxOutputTokens: opts.maxTokens ?? 4096,
         // Optional: cap "thinking" for structured calls (e.g. GEMINI_JSON_THINKING_BUDGET=0 on 2.5 models).
-        ...(opts.thinkingBudget !== undefined ? { thinkingConfig: { thinkingBudget: opts.thinkingBudget } }
+        ...(opts.thinking ? { thinkingConfig: /gemini-2\./.test(opts.model || MODEL) ? { thinkingBudget: 1024 } : { thinkingLevel: opts.thinking } }
           : process.env.GEMINI_JSON_THINKING_BUDGET ? { thinkingConfig: { thinkingBudget: Number(process.env.GEMINI_JSON_THINKING_BUDGET) } } : {}),
       },
     }),
