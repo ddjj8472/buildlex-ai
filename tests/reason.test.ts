@@ -29,7 +29,11 @@ test("ground() fixes a wrong [n] and marks invented conditions; consolidate() dr
   assert.deepEqual(c.issues[0].votes, ["아니오", "아니오", "예"]);
   assert.ok(c.issues[0].elements.every(e => e.grounded));
   const txt = formatAnalysis(c);
-  assert.ok(txt.includes("결론: 아니오"));
+  assert.ok(txt.includes("결론(다수 2/3): 아니오"));
+  assert.ok(txt.includes("반대 결론(1/3): 예"));
+  assert.equal(c.issues[0].alt?.conclusion, "예");
+  const same = formatAnalysis(consolidate([{ model: "m1", a }, { model: "m2", a }])!);
+  assert.ok(same.includes("결론: 아니오") && !same.includes("반대 결론"));
   assert.ok(!/외벽 수선/.test(txt.split("제외한 조건")[0].split("\n").filter(l => l.includes("요건")).join("")));
 });
 

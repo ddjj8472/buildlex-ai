@@ -32,7 +32,8 @@ export type ReasonIssue = {
   answer: string;
 };
 export type LegalAnalysis = { issues: ReasonIssue[] };
-export type Consolidated = { issues: (ReasonIssue & { votes: Verdict[]; agree: boolean; dropped: string[] })[]; runs: number; models: string[] };
+/** `alt` = best-grounded analysis reaching a different conclusion, kept when the votes split so the answer step can adjudicate. */
+export type Consolidated = { issues: (ReasonIssue & { votes: Verdict[]; agree: boolean; dropped: string[]; alt?: ReasonIssue })[]; runs: number; models: string[] };
 
 const VERDICTS: Verdict[] = ["예", "아니오", "조건부", "판단불가"];
 
@@ -130,6 +131,7 @@ export function consolidate(runs: { model: string; a: LegalAnalysis }[]): Consol
     const top = Math.max(...tally.values());
     const winners = [...tally].filter(([, n]) => n === top).map(([v]) => v);
     const pick = cands.filter(c => winners.includes(c.conclusion)).sort((p, q) => groundedRatio(q) - groundedRatio(p))[0];
+    const alt = cands.filter(c => c.conclusion !== pick.conclusion).sort((p, q) => groundedRatio(q) - groundedRatio(p))[0];
     const dropped = [...pick.elements.filter(e => !e.grounded).map(e => e.element || e.quote), ...pick.exceptions.filter(e => !e.grounded).map(e => e.covers || e.quote)].filter(Boolean);
     return {
       ...pick,
@@ -137,6 +139,7 @@ export function consolidate(runs: { model: string; a: LegalAnalysis }[]): Consol
       exceptions: pick.exceptions.filter(e => e.grounded),
       rules: pick.rules.filter(r => r.grounded),
       votes, agree: new Set(votes).size === 1, dropped,
+      ...(alt ? { alt: { ...alt, rules: alt.rules.filter(r => r.grounded), elements: alt.elements.filter(e => e.grounded), exceptions: alt.exceptions.filter(e => e.grounded) } } : {}),
     };
   });
   return { issues, runs: ok.length, models: ok.map(r => r.model) };
@@ -154,7 +157,15 @@ export function formatAnalysis(c: Consolidated): string {
     i.precedent ? `  유사 해석례: ${i.precedent}` : "",
     i.method ? `  해석 방법: ${i.method}` : "",
     i.dropped.length ? `  ※ 근거 원문에서 찾지 못해 제외한 조건(결론·설명에 쓰지 말 것): ${i.dropped.join("; ")}` : "",
-    `  결론: ${i.conclusion} — ${i.answer} [${i.agree ? `독립 분석 ${i.votes.length}개 일치` : `분석 엇갈림(${i.votes.join("/")}), 근거가 더 직접적인 쪽 채택`}]`,
+    i.agree
+      ? `  결론: ${i.conclusion} — ${i.answer} [독립 분석 ${i.votes.length}개 일치]`
+      : `  결론(다수 ${i.votes.filter(v => v === i.conclusion).length}/${i.votes.length}): ${i.conclusion} — ${i.answer}`,
+    ...(!i.agree && i.alt ? [
+      `  반대 결론(${i.votes.filter(v => v === i.alt!.conclusion).length}/${i.votes.length}): ${i.alt.conclusion} — ${i.alt.answer}`,
+      ...i.alt.rules.map(r => `    반대 측 대전제 [근거 ${r.n}]: "${r.quote}"`),
+      ...i.alt.exceptions.map(e => `    반대 측 단서·예외 [근거 ${e.n}] "${e.quote}" — 빼는 대상: ${e.covers}`),
+      "  → 분석 엇갈림: 다수결이 아니라 [해석 원칙]과 [검색 근거] 원문에 비추어 맞는 결론을 택할 것",
+    ] : []),
   ].filter(Boolean).join("\n")).join("\n\n");
 }
 
