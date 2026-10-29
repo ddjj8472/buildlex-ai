@@ -60,20 +60,22 @@ async function relevantInterpretations(a: QueryAnalysis, holdout: string[] = [])
 /** Reasoning models: a stronger model and the default one run in parallel; a third breaks a tie. */
 const REASON_MODELS = (process.env.GEMINI_REASON_MODELS || [FALLBACK_MODELS[0] || "gemini-flash-latest", MODEL].join(",")).split(",").map(x => x.trim()).filter(Boolean);
 
-async function runReasoning(query: string, evidence: Evidence[], interpretations: Interpretation[], signal: AbortSignal | undefined, elapsed: () => number): Promise<Consolidated | null> {
-  const prompt = reasonPrompt({ query, evidenceText: formatEvidence(evidence, 30000, query), interpretations });
-  const budget = Math.min(18000, 38000 - elapsed());
-  if (budget < 6000) return null;
-  const run = (model: string, timeoutMs: number) => generateJSON<unknown>(prompt, { model, timeoutMs, signal, maxTokens: 4096 })
-    .then(raw => ({ model, a: ground(parseAnalysis(raw), evidence) }));
+async function runReasoning(query: string, evidence: Evidence[], interpretations: Interpretation[], signal: AbortSignal | undefined, elapsed: () => number): Promise<{ c: Consolidated | null; errors: string[] }> {
+  const prompt = reasonPrompt({ query, evidenceText: formatEvidence(evidence, 24000, query), interpretations });
+  const budget = Math.min(22000, 40000 - elapsed());
+  const errors: string[] = [];
+  if (budget < 6000) return { c: null, errors: ["시간 부족"] };
+  const run = (model: string, timeoutMs: number) => generateJSON<unknown>(prompt, { model, timeoutMs, signal, maxTokens: 8192 })
+    .then(raw => ({ model, a: ground(parseAnalysis(raw), evidence) }))
+    .catch(e => { errors.push(`${model}: ${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`); throw e; });
   const first = await Promise.allSettled([...new Set(REASON_MODELS)].slice(0, 2).map(m => run(m, budget)));
   const runs = first.flatMap(r => (r.status === "fulfilled" ? [r.value] : []));
   const split = (c: Consolidated | null) => !!c && c.issues.some(i => !i.agree);
-  if (runs.length === 2 && split(consolidate(runs)) && elapsed() < 28000) {
-    const third = await run(FAST_MODEL, Math.min(10000, 38000 - elapsed())).catch(() => null);
+  if ((runs.length < 2 || split(consolidate(runs))) && elapsed() < 30000) {
+    const third = await run(FAST_MODEL, Math.min(12000, 40000 - elapsed())).catch(() => null);
     if (third) runs.push(third);
   }
-  return consolidate(runs);
+  return { c: consolidate(runs), errors };
 }
 
 async function stage<T>(emit: Emit, id: StageId, fn: () => Promise<T>, detail?: (r: T) => string): Promise<T> {
@@ -237,8 +239,9 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
   // 4. 법리 분석 — independent syllogistic analyses vote; ungrounded conditions are dropped (lib/reason.ts).
   let reasoning: Consolidated | null = null;
   if (hasLLM() && !isMock() && needsReasoning(input.query) && elapsed() < 24000) {
-    reasoning = await stage(emit, "reason", () => runReasoning(input.query, evidence, interpretations, input.signal, elapsed),
-      r => r ? `독립 분석 ${r.runs}개 · ${r.issues.every(i => i.agree) ? "결론 일치" : "엇갈림 → 다수결"}${r.issues.some(i => i.dropped.length) ? " · 근거 없는 조건 제외" : ""}` : "생략").catch(() => null);
+    const r = await stage(emit, "reason", () => runReasoning(input.query, evidence, interpretations, input.signal, elapsed),
+      ({ c, errors }) => [c ? `독립 분석 ${c.runs}개 · ${c.issues.every(i => i.agree) ? "결론 일치" : "엇갈림 → 다수결"}${c.issues.some(i => i.dropped.length) ? " · 근거 없는 조건 제외" : ""}` : "분석 실패", errors.length ? `(${errors.join(" | ")})` : ""].filter(Boolean).join(" ")).catch(() => null);
+    reasoning = r?.c ?? null;
   } else emit({ type: "stage", id: "reason", status: "skipped", detail: needsReasoning(input.query) ? "시간 부족" : "판단형 질문 아님" });
 
   const generate = async (): Promise<string> => {
