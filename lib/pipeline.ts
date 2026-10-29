@@ -65,7 +65,7 @@ async function runReasoning(query: string, evidence: Evidence[], interpretations
   const budget = Math.min(22000, 40000 - elapsed());
   const errors: string[] = [];
   if (budget < 6000) return { c: null, errors: ["시간 부족"] };
-  const run = (model: string, timeoutMs: number) => generateJSON<unknown>(prompt, { model, timeoutMs, signal, maxTokens: 8192 })
+  const run = (model: string, timeoutMs: number) => generateJSON<unknown>(prompt, { model, timeoutMs, signal, maxTokens: 8192, thinkingBudget: Number(process.env.GEMINI_REASON_THINKING_BUDGET || 1024) })
     .then(raw => ({ model, a: ground(parseAnalysis(raw), evidence) }))
     .catch(e => { errors.push(`${model}: ${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`); throw e; });
   const first = await Promise.allSettled([...new Set(REASON_MODELS)].slice(0, 2).map(m => run(m, budget)));
