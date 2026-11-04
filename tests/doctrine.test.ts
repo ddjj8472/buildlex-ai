@@ -12,6 +12,12 @@ test("법리 노트: each failure-analysis note is picked by the question that n
   for (const [i, id] of Object.entries(want)) assert.ok(ids(cases[Number(i)].question).includes(id), `case ${i} → ${id}`);
 });
 
+test("법리 노트: a similar question outside the set picks the same note (generalization probes)", () => {
+  // 법제처 22-1001 (개발제한구역법) and 22-0475 (방화유리창) — not in the evaluation set.
+  assert.ok(ids("지방자치단체가 개발제한구역법을 위반한 경우 그 지방자치단체의 장이 같은 지방자치단체에 시정명령을 하거나 이행강제금을 부과할 수 있는지?").includes("self-sanction"));
+  assert.ok(ids("외벽 창호의 수선이 수반되지 않는 용도변경을 하려는 경우 같은 시설군 안에서 건축물대장 기재내용 변경을 신청하는 경우에도 방화유리창으로 해야 하는지?").includes("use-change-scope"));
+});
+
 test("법리 노트: narrow triggers — a passing mention does not pull an unrelated note", () => {
   // 18 lists 현장관리인 among 건축주등 but is not about its qualification; 46 mentions 건축선 only.
   assert.ok(!ids(cases[18].question).includes("site-manager"));
