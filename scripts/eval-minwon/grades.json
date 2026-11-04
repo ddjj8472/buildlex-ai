@@ -6,7 +6,9 @@
   "run2": "F",
   "run3": "H",
   "run4": "C",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "342227",
@@ -15,7 +17,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "run3 이월"
+  "run4_build": "run3 이월",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "335579",
@@ -24,7 +28,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "원칙 통합 빌드"
+  "run4_build": "원칙 통합 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "332855",
@@ -33,7 +39,8 @@
   "run2": "X",
   "run3": "X",
   "run4": "X",
-  "run4_build": "-"
+  "run4_build": "-",
+  "run5": "X"
  },
  {
   "id": "327895",
@@ -46,7 +53,8 @@
   "note": "국토계획법 제78조⑦(2021.10.8 신설)로 용적률 완화 중첩 허용 → 회답(2021.5) 이후 법 개정",
   "run1_orig": "H",
   "run2_orig": "C",
-  "run3_orig": "C"
+  "run3_orig": "C",
+  "run5": "X"
  },
  {
   "id": "338793",
@@ -55,7 +63,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "328225",
@@ -64,7 +74,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "run3 이월"
+  "run4_build": "run3 이월",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "328367",
@@ -73,7 +85,9 @@
   "run2": "C",
   "run3": "W",
   "run4": "W",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "법리 노트(재실행)"
  },
  {
   "id": "322483",
@@ -83,7 +97,9 @@
   "run3": "W",
   "run4": "C",
   "run4_build": "최종 빌드",
-  "note": "나: 시행령 제86조②1(2015~2017 개정)이 보행자 전용도로를 명시 → 현행법 기준으로 채점"
+  "note": "나: 시행령 제86조②1(2015~2017 개정)이 보행자 전용도로를 명시 → 현행법 기준으로 채점",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "340289",
@@ -92,7 +108,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "342619",
@@ -101,7 +119,9 @@
   "run2": "W",
   "run3": "W",
   "run4": "W",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "법리 노트(재실행)"
  },
  {
   "id": "312550",
@@ -110,7 +130,9 @@
   "run2": "H",
   "run3": "C",
   "run4": "C",
-  "run4_build": "법리분석 1차 빌드"
+  "run4_build": "법리분석 1차 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "337159",
@@ -119,7 +141,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "run3 이월"
+  "run4_build": "run3 이월",
+  "run5": "C",
+  "run5_build": "법리 노트(회귀 표본)"
  },
  {
   "id": "343643",
@@ -128,7 +152,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "run3 이월"
+  "run4_build": "run3 이월",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "343343",
@@ -137,7 +163,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "원칙 통합 빌드"
+  "run4_build": "원칙 통합 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "331369",
@@ -150,7 +178,8 @@
   "note": "국토계획법 제78조⑦(2021.10.8 신설)로 용적률 완화 중첩 허용 → 회답(2021.4) 이후 법 개정",
   "run1_orig": "H",
   "run2_orig": "C",
-  "run3_orig": "C"
+  "run3_orig": "C",
+  "run5": "X"
  },
  {
   "id": "339937",
@@ -159,7 +188,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "run3 이월"
+  "run4_build": "run3 이월",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "335985",
@@ -168,7 +199,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "335079",
@@ -177,7 +210,9 @@
   "run2": "W",
   "run3": "W",
   "run4": "H",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "법리 노트(재실행)"
  },
  {
   "id": "324855",
@@ -186,7 +221,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "원칙 통합 빌드"
+  "run4_build": "원칙 통합 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "336967",
@@ -195,7 +232,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "run3 이월"
+  "run4_build": "run3 이월",
+  "run5": "C",
+  "run5_build": "법리 노트(회귀 표본)"
  },
  {
   "id": "314970",
@@ -204,7 +243,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "법리분석 1차 빌드"
+  "run4_build": "법리분석 1차 빌드",
+  "run5": "C",
+  "run5_build": "법리 노트(회귀 표본)"
  },
  {
   "id": "332539",
@@ -213,7 +254,9 @@
   "run2": "C",
   "run3": "W",
   "run4": "C",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "335467",
@@ -222,7 +265,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "334299",
@@ -231,7 +276,9 @@
   "run2": "C",
   "run3": "W",
   "run4": "C",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "법리 노트(회귀 표본)"
  },
  {
   "id": "327527",
@@ -240,7 +287,9 @@
   "run2": "W",
   "run3": "W",
   "run4": "W",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "법리 노트(재실행)"
  },
  {
   "id": "328263",
@@ -249,7 +298,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "원칙 통합 빌드"
+  "run4_build": "원칙 통합 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "334273",
@@ -258,7 +309,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "run3 이월"
+  "run4_build": "run3 이월",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "329717",
@@ -267,7 +320,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "run3 이월"
+  "run4_build": "run3 이월",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "328641",
@@ -276,7 +331,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "법리 노트(회귀 표본)"
  },
  {
   "id": "338813",
@@ -285,7 +342,9 @@
   "run2": "W",
   "run3": "W",
   "run4": "C",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "법리 노트(회귀 표본)"
  },
  {
   "id": "324223",
@@ -294,7 +353,8 @@
   "run2": "X",
   "run3": "X",
   "run4": "X",
-  "run4_build": "-"
+  "run4_build": "-",
+  "run5": "X"
  },
  {
   "id": "343887",
@@ -303,7 +363,9 @@
   "run2": "W",
   "run3": "H",
   "run4": "W",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "법리 노트(재실행)"
  },
  {
   "id": "335063",
@@ -312,7 +374,9 @@
   "run2": "W",
   "run3": "W",
   "run4": "W",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "법리 노트(재실행)"
  },
  {
   "id": "340569",
@@ -321,7 +385,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "원칙 통합 빌드"
+  "run4_build": "원칙 통합 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "328989",
@@ -330,7 +396,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "run3 이월"
+  "run4_build": "run3 이월",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "330589",
@@ -339,7 +407,9 @@
   "run2": "W",
   "run3": "C",
   "run4": "W",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "법리 노트(재실행)"
  },
  {
   "id": "334223",
@@ -348,7 +418,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "법리분석 1차 빌드"
+  "run4_build": "법리분석 1차 빌드",
+  "run5": "C",
+  "run5_build": "법리 노트(회귀 표본)"
  },
  {
   "id": "335993",
@@ -357,7 +429,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "run3 이월"
+  "run4_build": "run3 이월",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "342869",
@@ -366,7 +440,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "run3 이월"
+  "run4_build": "run3 이월",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "329043",
@@ -375,7 +451,9 @@
   "run2": "H",
   "run3": "W",
   "run4": "C",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "328229",
@@ -384,7 +462,9 @@
   "run2": "H",
   "run3": "W",
   "run4": "C",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "324297",
@@ -393,7 +473,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "324365",
@@ -402,7 +484,9 @@
   "run2": "W",
   "run3": "C",
   "run4": "C",
-  "run4_build": "법리분석 1차 빌드"
+  "run4_build": "법리분석 1차 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "328355",
@@ -411,7 +495,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "run3 이월"
+  "run4_build": "run3 이월",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "325055",
@@ -420,7 +506,9 @@
   "run2": "W",
   "run3": "W",
   "run4": "W",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "법리 노트(재실행)"
  },
  {
   "id": "343509",
@@ -429,7 +517,9 @@
   "run2": "C",
   "run3": "W",
   "run4": "C",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "법리 노트(회귀 표본)"
  },
  {
   "id": "341443",
@@ -438,7 +528,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "run3 이월"
+  "run4_build": "run3 이월",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "328565",
@@ -447,7 +539,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "법리분석 1차 빌드"
+  "run4_build": "법리분석 1차 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "321639",
@@ -456,7 +550,9 @@
   "run2": "W",
   "run3": "H",
   "run4": "W",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "법리 노트(재실행)"
  },
  {
   "id": "330797",
@@ -465,7 +561,9 @@
   "run2": "H",
   "run3": "C",
   "run4": "W",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "W",
+  "run5_build": "run4 이월"
  },
  {
   "id": "314942",
@@ -474,7 +572,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "run3 이월"
+  "run4_build": "run3 이월",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "329277",
@@ -483,7 +583,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "run3 이월"
+  "run4_build": "run3 이월",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "340781",
@@ -492,7 +594,9 @@
   "run2": "C",
   "run3": "W",
   "run4": "C",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "327151",
@@ -501,7 +605,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "run3 이월"
+  "run4_build": "run3 이월",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "334341",
@@ -510,7 +616,9 @@
   "run2": "W",
   "run3": "C",
   "run4": "C",
-  "run4_build": "법리분석 1차 빌드"
+  "run4_build": "법리분석 1차 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "338967",
@@ -519,7 +627,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "H",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "법리 노트(재실행)"
  },
  {
   "id": "329201",
@@ -528,7 +638,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "원칙 통합 빌드"
+  "run4_build": "원칙 통합 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  },
  {
   "id": "340817",
@@ -537,7 +649,9 @@
   "run2": "C",
   "run3": "C",
   "run4": "C",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "법리 노트(회귀 표본)"
  },
  {
   "id": "343729",
@@ -546,6 +660,8 @@
   "run2": "C",
   "run3": "W",
   "run4": "C",
-  "run4_build": "최종 빌드"
+  "run4_build": "최종 빌드",
+  "run5": "C",
+  "run5_build": "run4 이월"
  }
 ]
