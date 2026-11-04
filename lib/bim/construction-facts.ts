@@ -38,6 +38,7 @@ export function constructionFacts(p: ConstructionInputs): ConstructionFacts {
   const byId = new Map(p.elements.map(e => [e.id, e]));
   const slabs = p.elements.filter(e => isFloorSlab(e, byId));
   const flights = p.elements.filter(e => e.kind === "stairflight" || (e.kind === "ramp" && /FLIGHT/i.test(e.ifcType)));
+  const walls = p.elements.filter(e => (e.kind === "wall" || e.kind === "column") && meshOf(e));
   const levelsSorted = [...p.storeys].sort((a, b) => a.elevation - b.elevation);
 
   // ── excavation depth: bottom of the largest foundation (or lowest slab); small pits excluded
@@ -76,6 +77,10 @@ export function constructionFacts(p: ConstructionInputs): ConstructionFacts {
     if (!on.length) return;
     const raw = new Uint8Array(g.size);
     for (const e of on) rasterTriangles(g, raw, meshOf(e)!, 1);
+    // Walls and columns that pass through the slab are cast with it: where a wall is joined to cut
+    // the floor the slab stops at the wall face, but the floor plate is still closed there. Only the
+    // cross-section inside the slab depth counts, so walls standing on the slab are still not guards.
+    for (const e of walls) if (e.min[2] < z - 0.05 && e.max[2] > z - 0.05) rasterTriangles(g, raw, meshOf(e)!, 1);
     const M = close(raw, nx, ny);
     let slabCells = 0;
     for (let k = 0; k < M.length; k++) if (M[k]) slabCells++;

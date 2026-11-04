@@ -21,7 +21,19 @@ const VERTICAL = new Set(["wall", "curtainwall", "column", "door", "window", "pl
 const OBSTACLE = new Set(["wall", "curtainwall", "window", "column", "plate", "member", "railing"]);
 const GUARD = new Set(["wall", "curtainwall", "railing", "plate", "member"]);
 
+// People, cars and trees placed for presentation (Revit RPC / Entourage / Planting families export as
+// IfcBuildingElementProxy in IFC2x3) are not part of the building: they must not count toward the
+// footprint, the height or the 정북 일조 envelope.
+const ENTOURAGE = /\bRPC\b|entourage|\btrees?\b|deciduous|conifer|\bpalm\b|shrub|\bbush\b|vehicle|\bcars?\b|\bvans?\b|truck|\bbus\b|bicycle|people|person|나무|수목|관목|교목|차량|자동차|인물|사람/i;
+export const isEntourage = (e: Pick<ParsedElement, "kind" | "name" | "objectType">) => e.kind === "proxy" && ENTOURAGE.test(`${e.name} ${e.objectType || ""}`);
+
 const meshOf = (e: ParsedElement): Mesh | null => (e.positions && e.indices && e.indices.length ? { positions: e.positions, indices: e.indices } : null);
+/** Two-triangle plan mesh of an oriented rectangle, widened by `pad` on each long side. */
+const rectMesh = (r: { center: Vec2; u: Vec2; v: Vec2; length: number; width: number }, pad: number): Mesh => {
+  const hl = r.length / 2, hw = r.width / 2 + pad;
+  const pts = [[-1, -1], [1, -1], [1, 1], [-1, 1]].flatMap(([a, b]) => [r.center[0] + r.u[0] * hl * a + r.v[0] * hw * b, r.center[1] + r.u[1] * hl * a + r.v[1] * hw * b, 0]);
+  return { positions: new Float32Array(pts), indices: new Uint32Array([0, 1, 2, 0, 2, 3]) };
+};
 const label = (e: ParsedElement) => (e.kind === "space" && e.longName && e.name && e.longName !== e.name ? `${e.longName} ${e.name}` : e.longName || e.name || e.objectType || e.ifcType);
 
 function propNum(props: Record<string, PropValue>, ...keys: string[]): number | undefined {
@@ -59,7 +71,7 @@ export function analyze(model: ParsedModel, opts: AnalyzeOptions = {}): { facts:
   const isLandscape = (e: ParsedElement) => /조경/.test(String(krValue(e.props, "실용도") || "")) || (e.kind !== "space" && e.kind !== "site" && /조경|식재|잔디|정원|landscape|planting|lawn/i.test(`${e.name} ${e.objectType || ""}`));
   const isBoundary = (e: ParsedElement) => /대지경계|대지\s*경계|site\s*boundary|property\s*line/i.test(`${krValue(e.props, "실용도") || ""} ${e.name} ${e.objectType || ""}`);
   const elements = model.elements.filter(e => meshOf(e));
-  const massing = elements.filter(e => MASSING.has(e.kind) && !isParking(e) && !isLandscape(e) && !isBoundary(e));
+  const massing = elements.filter(e => MASSING.has(e.kind) && !isParking(e) && !isLandscape(e) && !isBoundary(e) && !isEntourage(e));
   const spacesEl = elements.filter(e => e.kind === "space");
   if (!massing.length) throw new Error("건축 요소(벽·슬래브 등)의 형상을 찾지 못했습니다.");
 
@@ -91,7 +103,10 @@ export function analyze(model: ParsedModel, opts: AnalyzeOptions = {}): { facts:
   const qtoStorey = (id: number) => propNum(storeyById.get(id)?.props || {}, "Qto_BuildingStoreyBaseQuantities.GrossFloorArea");
   storeys.forEach((s, i) => {
     const m = new Uint8Array(areaGrid.size);
-    for (const e of elements) if (e.storey === s.id && (VERTICAL.has(e.kind) || e.kind === "space")) rasterTriangles(areaGrid, m, meshOf(e)!, 1);
+    // A wall or column modelled once over several floors (Revit "top constraint" above the next
+    // level, exported without splitting) belongs to its base storey but stands on every floor it spans.
+    const spans = (e: ParsedElement) => VERTICAL.has(e.kind) && e.min[2] < s.elevation + 0.1 && e.max[2] > s.elevation + Math.min(1.5, storeyHeight(i) / 2);
+    for (const e of elements) if ((e.storey === s.id && (VERTICAL.has(e.kind) || e.kind === "space")) || (e.storey !== s.id && spans(e))) rasterTriangles(areaGrid, m, meshOf(e)!, 1);
     let outer = countCells(m) * areaGrid.cell ** 2;
     let area = centreline(outer, perimeter(areaGrid, m));
     const q = qtoStorey(s.id);
@@ -293,6 +308,9 @@ export function analyze(model: ParsedModel, opts: AnalyzeOptions = {}): { facts:
     const walk = new Uint8Array(planGrid.size);
     for (let i = 0; i < walk.length; i++) if (lab[i] >= 0 || srcMask[i]) walk[i] = 1;
     for (const e of elements) if (e.kind === "slab" && e.max[2] >= s.elevation - 0.35 && e.max[2] <= s.elevation + 0.25) rasterTriangles(planGrid, walk, meshOf(e)!, 1, (a, b, c) => Math.max(a, b, c) >= s.elevation - 0.35);
+    // Door openings are passable even where the floor slab stops at the wall (walls joined to cut the
+    // floor leave no slab under the threshold): open the door's plan rectangle across the wall depth.
+    for (const e of elements) if (e.kind === "door" && Math.abs(e.min[2] - s.elevation) <= 0.35) rasterTriangles(planGrid, walk, rectMesh(minAreaRect(xyPoints(meshOf(e)!)), 0.15), 1);
     const blocked = new Uint8Array(planGrid.size);
     for (const e of elements) if (OBSTACLE.has(e.kind) && e.min[2] < zs && e.max[2] > zs && !(e.kind === "railing" && stairFlights.some(f => overlaps(f, e, 0.4)))) rasterSegments(planGrid, blocked, slice(meshOf(e)!, zs));
     const free = new Uint8Array(planGrid.size);
@@ -325,7 +343,7 @@ export function analyze(model: ParsedModel, opts: AnalyzeOptions = {}): { facts:
     const pts: NorthPoint[] = [];
     const seen = new Set<string>();
     for (const e of massing) {
-      if (e.max[2] <= groundZ + 0.01) continue;
+      if (e.max[2] <= groundZ + 0.05) continue; // paving, kerbs and painted parking lines are not building
       const p = e.positions!;
       const r = ref(e);
       for (let k = 0; k < p.length; k += 3) {
@@ -363,7 +381,7 @@ export function analyze(model: ParsedModel, opts: AnalyzeOptions = {}): { facts:
   // ── 시공 단계: slab edges, openings, excavation depth ──
   report("시공 단계 형상", 0.97);
   let construction: BimFacts["construction"];
-  try { construction = constructionFacts({ elements: elements.filter(e => !isParking(e) && !isLandscape(e) && !isBoundary(e)), storeys: storeyFacts, groundZ, spaces: spaceFacts, ref }); }
+  try { construction = constructionFacts({ elements: elements.filter(e => !isParking(e) && !isLandscape(e) && !isBoundary(e) && !isEntourage(e)), storeys: storeyFacts, groundZ, spaces: spaceFacts, ref }); }
   catch (e) { quality.push({ level: "info", text: `시공 단계 형상 분석을 건너뛰었습니다: ${e instanceof Error ? e.message : String(e)}` }); }
 
   const triangles = elements.reduce((a, e) => a + (e.indices?.length || 0) / 3, 0);
