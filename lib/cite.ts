@@ -94,7 +94,9 @@ export function missingLaws(text: string, lawKeys: Set<string>): string[] {
   for (const m of text.matchAll(/「([^」]{2,60})」/g)) {
     const name = m[1].trim();
     if (!/(법|법률|령|규칙|규정)$/.test(name)) continue;
-    if (!lawKeys.has(lawKeyOf(name))) names.add(name);
+    const key = lawKeyOf(name);
+    // Laws renamed in 2012 ("도시계획시설…" → "도시ㆍ군계획시설…") are still cited by the old name.
+    if (!lawKeys.has(key) && !lawKeys.has(key.replace(/도시(?!군)(계획)/g, "도시군$1"))) names.add(name);
   }
   return [...names];
 }
