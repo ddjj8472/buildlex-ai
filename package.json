@@ -11,13 +11,16 @@
     "corpus": "tsx scripts/build-corpus.ts",
     "embed": "tsx scripts/embed.ts",
     "eval": "tsx scripts/eval-retrieval.ts",
+    "eval:rag": "tsx scripts/eval-rag.ts",
     "test": "tsx --test tests/*.test.ts",
     "postinstall": "node scripts/vendor-web-ifc.mjs",
     "ifc-samples": "python3 scripts/make-test-ifc.py"
   },
   "dependencies": {
+    "@huggingface/tokenizers": "^0.2.0",
     "leaflet": "^1.9.4",
     "next": "16.3.7",
+    "onnxruntime-web": "^1.31.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "three": "^0.186.1",

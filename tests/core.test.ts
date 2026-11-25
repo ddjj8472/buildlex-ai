@@ -82,3 +82,15 @@ test("evaluation holdout hides the held-out 법령해석례 by 안건명", async
   assert.equal(isHeldOut("「주차장법」에 따른 부설주차장 설치기준", held), false);
   assert.equal(isHeldOut("아무 해석례", []), false);
 });
+
+test("local query embedding: unit vector, and the semantic index finds a paraphrased provision", async (t) => {
+  const { localModelAvailable, embedLocal } = await import("../lib/local-embed.ts");
+  const { loadDense, denseTop } = await import("../lib/dense.ts");
+  const index = loadDense();
+  if (!localModelAvailable() || !index) return t.skip("local model or dense index not built");
+  const v = await embedLocal("query: 옥상에서 사람이 떨어지지 않게 담을 몇 미터 높이로 세워야 하나요");
+  assert.equal(v.length, index.dim);
+  assert.ok(Math.abs(Math.hypot(...v) - 1) < 1e-3);
+  const top = denseTop(index, v, 10).map(x => x.id);
+  assert.ok(top.includes("건축법시행령#40"), top.join(", "));
+});

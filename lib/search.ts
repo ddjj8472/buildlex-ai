@@ -3,7 +3,7 @@
 // expanded along the delegation graph (법률 ↔ 시행령 ↔ 시행규칙 ↔ 별표 ↔ 조례).
 import { topK } from "./bm25.ts";
 import { applicableRegions, familyOf, loadNational, type Loaded } from "./corpus.ts";
-import { denseScores, embed, loadDense } from "./dense.ts";
+import { denseTop, embedQuery, loadDense, loadRegionDense, type DenseIndex } from "./dense.ts";
 import type { Citation } from "./cite.ts";
 import { lawKeyOf } from "./text.ts";
 import type { Chunk, Evidence, QueryAnalysis, Region } from "./types.ts";
@@ -18,6 +18,10 @@ export type SearchOptions = {
   maxExpansions?: number;
   /** Provisions the question names explicitly (see cite.ts); pinned ahead of ranked hits. */
   cited?: Citation[];
+  /** RRF weight of the dense list (default DENSE_WEIGHT). */
+  denseWeight?: number;
+  /** Use only the dense list (evaluation). */
+  denseOnly?: boolean;
 };
 
 /** 부칙 chunks only compete when the question is about 적용례·경과조치·시행 시점. */
@@ -87,28 +91,52 @@ function bm25Lists(loaded: Loaded, a: QueryAnalysis, depth: number): { lists: Ra
   return { lists, best };
 }
 
-async function denseList(a: QueryAnalysis, depth: number): Promise<{ list: Ranked | null; status: SearchDebug["dense"] }> {
+// BM25 contributes 4–6 query-variant lists (원문·법률용어 확장·하위질의·전문용어, total weight ≈ 3–5);
+// weighting the one dense list at 6 lets the semantic and lexical signals count about equally.
+// Chosen on tests (scripts/eval-rag.ts): w=1.2→2.4→4→6→10 gave R@5 0.63→0.69→0.69→0.70→0.70 overall.
+export const DENSE_WEIGHT = Number(process.env.BUILDLEX_DENSE_WEIGHT || 6);
+
+/** Text embedded for the query: the stand-alone question plus the legal terms it maps to. */
+export const denseQueryText = (a: QueryAnalysis) => `${a.standalone} ${a.legalTerms.slice(0, 8).join(" ")}`.trim();
+
+type DenseOut = { list: Ranked | null; status: SearchDebug["dense"]; vec?: Float32Array; model?: string };
+
+async function denseList(loaded: Loaded, a: QueryAnalysis, depth: number, weight: number): Promise<DenseOut> {
   const index = loadDense();
   if (!index) return { list: null, status: "unavailable" };
   try {
-    const [vec] = await embed([`${a.standalone}\n${a.legalTerms.join(", ")}`], "RETRIEVAL_QUERY", AbortSignal.timeout(6000));
-    const s = denseScores(index, vec);
-    return { list: { name: "Dense", weight: 1.1, ids: topK(s, depth).map(x => index.ids[x.i]) }, status: "used" };
+    const vec = await embedQuery(index, denseQueryText(a), AbortSignal.timeout(6000));
+    const addendaOk = ADDENDA_Q.test(a.standalone);
+    const keep = (id: string) => {
+      const c = loaded.byId.get(id);
+      return !!c && c.text.length >= 25 && (addendaOk || c.path !== "부칙");
+    };
+    const top = denseTop(index, vec, depth, keep);
+    return { list: { name: "Dense", weight, ids: top.map(x => x.id) }, status: "used", vec, model: index.model };
   } catch {
     return { list: null, status: "failed" };
   }
+}
+
+/** Query vector for a regional shard: reuse the national one when the same model built both. */
+async function regionVec(index: DenseIndex, a: QueryAnalysis, national: DenseOut): Promise<Float32Array | null> {
+  if (national.vec && national.model === index.model) return national.vec;
+  return embedQuery(index, denseQueryText(a), AbortSignal.timeout(6000)).catch(() => null);
 }
 
 export async function hybridSearch(a: QueryAnalysis, opts: SearchOptions = {}): Promise<{ evidence: Evidence[]; debug: SearchDebug }> {
   const t0 = Date.now();
   const national = loadNational();
   const limit = opts.limit ?? 9;
-  const { lists, best } = bm25Lists(national, a, 80);
+  const bm = bm25Lists(national, a, 80);
+  const best = bm.best;
+  let lists = bm.lists;
   let denseStatus: SearchDebug["dense"] = "off";
+  let dense: DenseOut = { list: null, status: "off" };
   if (opts.dense !== false) {
-    const d = await denseList(a, 80);
-    denseStatus = d.status;
-    if (d.list) lists.push(d.list);
+    dense = await denseList(national, a, 80, opts.denseWeight ?? DENSE_WEIGHT);
+    denseStatus = dense.status;
+    if (dense.list) lists = opts.denseOnly ? [dense.list] : [...lists, dense.list];
   }
   const fused = rrf(lists);
   let ranked = [...fused.entries()].sort((x, y) => y[1] - x[1]).map(([id, s]) => ({ id, s }));
@@ -172,13 +200,19 @@ export async function hybridSearch(a: QueryAnalysis, opts: SearchOptions = {}): 
     push(x.chunk, x.score, x.chunk.kind === "appendix" ? "appendix" : "expand", `${x.from.lawName} ${x.from.articleNo}와 연결`);
   }
 
-  // Regional ordinances (own 시·군·구 + 광역).
-  const regional = applicableRegions(opts.region ?? null);
+  // Regional ordinances (own 시·군·구 + 광역). Ordinance questions usually carry the decisive
+  // term (건폐율·용적률·조경…), where keyword ranking is hard to beat (tests/ordinance.json:
+  // fusing dense lowered R@1 0.88 → 0.71), so BM25 keeps the order and the semantic search
+  // only adds the provision it ranks first when keywords missed it (paraphrased questions).
+  const region = opts.region ?? null;
+  const regional = applicableRegions(region);
   if (regional.length) {
+    const keys = region ? [region.key, ...region.parents] : [];
     const families = new Set(evidence.map(e => familyOf(e.chunk.lawKey, national.laws)));
     const expanded = queryVariants(a).find(v => v.name === "법률용어 확장")!.text;
     const ordHits: { chunk: Chunk; s: number }[] = [];
-    for (const l of regional) {
+    let semantic: { chunk: Chunk; s: number } | null = null;
+    for (const [ri, l] of regional.entries()) {
       const s = l.score(expanded);
       for (const h of topK(s, 8)) {
         const chunk = l.chunks[h.i];
@@ -186,13 +220,20 @@ export async function hybridSearch(a: QueryAnalysis, opts: SearchOptions = {}): 
         // Prefer ordinances delegated by a law that is already in the evidence.
         ordHits.push({ chunk, s: h.s * (families.has(parent) ? 1.3 : 1) });
       }
+      const di = opts.dense !== false && keys[ri] ? loadRegionDense(keys[ri]) : null;
+      const vec = di ? await regionVec(di, a, dense) : null;
+      if (di && vec) {
+        const [top] = denseTop(di, vec, 1, id => (l.byId.get(id)?.text.length ?? 0) >= 25);
+        if (top && (!semantic || top.s > semantic.s)) semantic = { chunk: l.byId.get(top.id)!, s: top.s };
+      }
     }
     const max = Math.max(0, ...ordHits.map(h => h.s));
-    ordHits
+    const picked = ordHits
       .filter(h => h.s >= max * 0.45 && h.chunk.text.length >= 25)
       .sort((x, y) => y.s - x.s)
-      .slice(0, 4)
-      .forEach(h => push(h.chunk, h.s, "ordinance"));
+      .slice(0, 4);
+    if (semantic && !picked.some(h => h.chunk.id === semantic!.chunk.id)) picked.splice(Math.min(picked.length, 3), 1, semantic);
+    picked.forEach(h => push(h.chunk, h.s, "ordinance"));
   }
 
   evidence.forEach((e, i) => (e.n = i + 1));

@@ -1,9 +1,19 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // The corpus is read with fs at runtime; make sure it ships with the functions.
+  // Query embedding runs onnxruntime-web (WebAssembly) in the route handler; keep it a
+  // plain Node require so it finds its .wasm next to its own files.
+  serverExternalPackages: ["onnxruntime-web"],
+  // The corpus, vectors and embedding model are read with fs at runtime; ship them with the functions.
   outputFileTracingIncludes: {
-    "/api/**": ["./data/index/**", "./data/knowledge/**"],
+    "/api/**": [
+      "./data/index/**",
+      "./data/knowledge/**",
+      "./data/model/**",
+      "./node_modules/onnxruntime-web/dist/ort.node.min.mjs",
+      "./node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs",
+      "./node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm",
+    ],
   },
 };
 
