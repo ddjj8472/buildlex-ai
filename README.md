@@ -10,7 +10,7 @@
 |---|---|---|
 | 데이터 | 질문마다 법제처 API로 법령 전문을 실시간으로 받아 옴 (느리고 자주 실패) | **legalize-kr 스냅샷을 미리 색인** (국가법령 86개 파일·5,425개 조문, 전국 243개 지역 조례 454건·22,208개 조문) |
 | 현행성 | 최신 공포본 = 현행으로 취급 | git 연혁에서 **오늘 시행 중인 버전**을 고르고, 시행 예정 개정은 따로 경고 |
-| 검색 | 부분 문자열 일치 + 질문별 수작업 점수 | **BM25(어절 + 음절 bigram, 조문 제목 가중) × 여러 질의 변형 + 의미 검색 → RRF 융합 → AI 재순위** |
+| 검색 | 부분 문자열 일치 + 질문별 수작업 점수 | **BM25(어절 + 음절 bigram, 조문 제목 가중) × 여러 질의 변형 + 벡터(의미) 검색 → RRF 융합 → AI 재순위**. 벡터는 국가법령·전국 조례 전부(약 4만 행) |
 | 연결 | 없음 | 법→시행령→시행규칙 **위임 그래프(11,942개 인용 링크)**, 별표, 조례 자동 확장 |
 | 검증 | 근거 번호 범위만 확인 | 근거 번호와 **인용 조문의 실제 존재 여부**를 기계적으로 검증, 품질 평가 후 **자동 재검색** |
 | 화면 | 단일 폼 | 대화형 화면: 대화 기록, 6단계 진행 표시, 근거 패널, 대지 조건 기억, 다크 모드, 모바일 |
@@ -28,7 +28,7 @@
 
 ```
 질문 ─▶ ① 질의 분석     일상어→법령용어 확장, 대지 조건 추출, 관련 법령 추정, 후속 질문 복원
-      ─▶ ② 법령 검색     BM25(원문·확장·하위질의) + Dense → RRF(k=60) → LLM 재순위(0~3점)
+      ─▶ ② 법령 검색     BM25(원문·확장·하위질의) + 벡터(한국어 임베딩, 조례 포함) → RRF(k=60) → LLM 재순위(0~3점)
       ─▶ ③ 연결 조문     인용 그래프로 상·하위 위임 조문과 별표 추가, 지역 조례(시·군·구 + 광역) 검색
                         별표 본문과 법제처 법령해석례는 Open API로 실시간 조회
       ─▶ ④ 답변 생성     ## 결론 / 근거 법령 / 세부 해석 / 추가 확인 사항, 모든 요건에 [n]
@@ -49,7 +49,8 @@ lib/
   bm25.ts            typed-array 역색인 BM25 (본문/제목 2필드)
   corpus.ts          코퍼스 로딩, 조문 → 700자 패시지 분할 색인, 지역 조례 샤드
   search.ts          하이브리드 검색, RRF, 재순위, 위임 그래프 확장, 조례 검색
-  dense.ts           Gemini 임베딩 (int8 양자화 저장, 코사인)
+  dense.ts           벡터 색인 로딩·검색 (int8 양자화, 코사인, 조문별 최대 풀링). 로컬 모델 또는 Gemini
+  local-embed.ts     질의 임베딩: 한국어 공개 모델(KoEn-E5-Tiny)을 서버에서 직접 실행 (API 비용 0)
   analyze-rules.ts   규칙 기반 질의 분석, 대지 조건 추출
   lexicon.ts         일상어→법령용어 사전, 주제→법령 힌트
   pipeline.ts        6단계 에이전트 오케스트레이션
@@ -58,12 +59,15 @@ lib/
   law-api.ts         국가법령정보 Open API (별표 본문, 법령해석례)
 data/
   law-list.ts        색인 대상 법령 목록 / 조례 종류
-  index/             빌드된 코퍼스 (national.json, ord/*.json, regions.json, embeddings-*)
+  index/             빌드된 코퍼스 (national.json, ord/*.json, regions.json, embeddings-national.*, ord-emb/*)
+  model/koen-e5-tiny/ 질의 임베딩 모델 (Apache-2.0, int8 38MB)
   knowledge/notes.json  운영지식 메모 (검토 후 추가·수정)
 scripts/
   fetch-sources.sh   legalize-kr / ordinance-kr 원본 받기
   build-corpus.ts    조문 파싱, 현행 버전 선택, 인용 그래프 생성
-  embed.ts           의미 검색 색인 생성 (증분)
+  embed_local.py     벡터 색인 생성 — 로컬 모델, 키·비용 없음 (기본)
+  embed.ts           벡터 색인 생성 — Gemini 임베딩 API (선택)
+  eval-rag.ts        RAG 평가: BM25 / 벡터 / 하이브리드의 정확도와 AI 입력 분량
   eval-retrieval.ts  검색 정확도 평가
 docs/refresh-corpus.workflow.yml       매주 코퍼스 자동 갱신 (.github/workflows로 옮겨 사용)
 ```
@@ -111,7 +115,8 @@ npm run dev                       # http://localhost:3000
 ```bash
 bash scripts/fetch-sources.sh ../sources
 LEGALIZE_DIR=../sources/legalize-kr ORDINANCE_DIR=../sources/ordinance-kr LAW_API_OC=발급키 npm run corpus
-GEMINI_API_KEY=... npm run embed  # 선택: 의미 검색 색인 (약 5,400개 조문)
+python3 scripts/embed_local.py --model <KoEn-E5-Tiny 폴더>  # 벡터 색인 (국가 15,791행 + 조례 25,506행, CPU 약 1시간)
+npm run eval:rag                  # BM25 vs 하이브리드 정확도·경제성
 npm test && npm run eval
 ```
 

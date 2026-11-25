@@ -10,6 +10,9 @@ import { formatDoctrines, matchDoctrines } from "./doctrine.ts";
 import { consolidate, formatAnalysis, ground, needsReasoning, parseAnalysis, reasonPrompt, type Consolidated } from "./reason.ts";
 import { answerPrompt, analysisPrompt, formatEvidence, evaluationPrompt, rerankPrompt, type Note, type Turn } from "./prompts.ts";
 import { hybridSearch, type Reranker } from "./search.ts";
+
+/** BUILDLEX_RAG_LEAN=1: rely on hybrid (BM25+vector) ranking, skip the LLM rerank call, pass fewer provisions. */
+const LEAN = process.env.BUILDLEX_RAG_LEAN === "1";
 import { lawKeyOf, formatDate } from "./text.ts";
 import type { EvalMode, Evidence, EvidenceView, Interpretation, QueryAnalysis, SiteFacts, StageId, StreamEvent } from "./types.ts";
 import { verifyAnswer } from "./verify.ts";
@@ -210,7 +213,11 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
 
   const retrieve = async (a: QueryAnalysis) => {
     const [{ evidence, debug }, interp] = await Promise.all([
-      hybridSearch(a, { region: effRegion, cited, rerank: hasLLM() && !isMock() && elapsed() < 18000 ? llmReranker(input.signal, m => warnings.push(`AI 재순위 생략: ${m}`)) : undefined }),
+      hybridSearch(a, LEAN
+        // 절약 모드: 하이브리드 검색 순위를 그대로 쓰고(AI 재순위 호출 없음) 근거를 상위 5건 + 연결 2건으로 줄인다.
+        // scripts/eval-rag.ts 기준 AI가 읽는 근거 분량 약 48% 감소, 정답 조문 포함률은 BM25 전체 설정과 같은 수준.
+        ? { region: effRegion, cited, limit: 5, maxExpansions: 2 }
+        : { region: effRegion, cited, rerank: hasLLM() && !isMock() && elapsed() < 18000 ? llmReranker(input.signal, m => warnings.push(`AI 재순위 생략: ${m}`)) : undefined }),
       lawApiEnabled() ? relevantInterpretations(a, input.holdout).catch(() => []) : Promise.resolve([]),
     ]);
     interpretations = interp;
