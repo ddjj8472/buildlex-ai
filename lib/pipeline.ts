@@ -25,6 +25,8 @@ export type AskInput = {
   evalMode?: EvalMode;
   /** Evaluation only: 법령해석례 whose 안건명 matches one of these are never used as evidence (held-out test cases). */
   holdout?: string[];
+  /** Evaluation only: skip the 법리 노트 (lib/doctrine.ts), to measure the pipeline without them. */
+  noDoctrine?: boolean;
   signal?: AbortSignal;
 };
 
@@ -250,7 +252,7 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
   });
   let notes = matchNotes(`${analysis.standalone} ${analysis.legalTerms.join(" ")}`, evidence.map(e => e.chunk.id));
   // 법리 노트: concept explanations matched on the question itself (lib/doctrine.ts).
-  const doctrines = matchDoctrines(`${input.query} ${analysis.standalone}`);
+  const doctrines = input.noDoctrine ? [] : matchDoctrines(`${input.query} ${analysis.standalone}`);
   const doctrine = formatDoctrines(doctrines);
   const shownNotes = () => [...doctrines.map(d => ({ title: `법리 노트 · ${d.title}`, text: d.text })), ...notes.map(n => ({ title: n.title, text: n.text }))];
   emit({ type: "evidence", evidence: evidence.map(e => toView(e, effRegion?.key)), interpretations, notes: shownNotes() });
