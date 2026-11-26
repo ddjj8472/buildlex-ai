@@ -76,7 +76,7 @@ test("adjudication: only contested issues go to the judge, and a verdict overrid
   const { judgePrompt, applyJudgment, formatAnalysis } = await import("../lib/reason.ts");
   const mk = (label: string, conclusion: string, basis: string) => ({ label, issue: `쟁점${label}`, rules: [], elements: [], exceptions: [], method: "", basis, counter: "반론", conclusion, answer: `답${label}` });
   const c = consolidate([1, 2, 3].map(() => ({ model: "m", a: parseAnalysis({ issues: [mk("가", "예", "문언"), mk("나", "아니오", "반대해석")] }) })))!;
-  const p = judgePrompt({ query: "q", c, evidenceText: "e", structure: "[준용] …" });
+  const p = judgePrompt({ query: "q", c, evidenceText: "e", structure: "[용어] …" });
   assert.match(p, /\(나\) 쟁점: 쟁점나/);
   assert.doesNotMatch(p, /\(가\) 쟁점/);
   assert.equal(applyJudgment(c, { issues: [{ label: "나", conclusion: "예", answer: "판정답", reason: "이유", confidence: "높음" }] }, "judge"), 1);
