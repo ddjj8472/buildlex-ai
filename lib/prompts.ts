@@ -177,7 +177,7 @@ ${p.structure ? `[법령 구조 분석 — 프로그램이 현행 원문에서 �
 ${formatEvidence(p.evidence, 48000, p.query)}
 
 [법제처 법령해석례(참고)]
-${p.interpretations.map((x, i) => `(해석례${i + 1}) ${x.title} — ${x.agency} ${formatDate(x.date)}\n질의: ${x.question.slice(0, 500)}\n회답: ${x.answer.slice(0, 600)}`).join("\n\n") || "없음"}
+${p.interpretations.map((x, i) => `(해석례${i + 1}) ${x.title} — ${x.agency} ${formatDate(x.date)}\n질의: ${x.question.slice(0, 500)}\n회답: ${x.answer.slice(0, 600)}${x.reason ? `\n이유(발췌): ${x.reason.slice(0, 700)}` : ""}`).join("\n\n") || "없음"}
 
 [운영지식(참고)]
 ${p.notes.map(n => `- ${n.title}: ${n.text}`).join("\n") || "없음"}`;

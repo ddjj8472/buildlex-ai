@@ -77,3 +77,26 @@ export async function searchInterpretations(query: string, limit = 3): Promise<I
   }));
   return out.filter(x => x.title);
 }
+
+
+export type InterpretationItem = { id: string; title: string; agency: string; date: string; url: string };
+
+/** 법령해석례 list only (no detail calls) — for candidate generation. */
+export async function listInterpretations(query: string, display = 20, timeoutMs = 6000): Promise<InterpretationItem[]> {
+  if (!lawApiEnabled() || !query.trim()) return [];
+  const data = await getJSON({ endpoint: "lawSearch.do", target: "expc", query, display: String(display) }, timeoutMs);
+  return arr(rec(data["Expc"])["expc"] as J | J[] | undefined).map(rec).map(it => {
+    const id = txt(it["법령해석례일련번호"]);
+    const link = txt(it["법령해석례상세링크"]);
+    return {
+      id, title: strip(txt(it["안건명"])), agency: txt(it["회신기관명"]) || "법제처", date: txt(it["회신일자"]),
+      url: link ? new URL(link.replace(/OC=[^&]*&?/, ""), "https://www.law.go.kr").toString() : `https://www.law.go.kr/LSW/expcInfoP.do?expcSeq=${id}`,
+    };
+  }).filter(x => x.id && x.title);
+}
+
+/** 질의요지 · 회답 · 이유 of one 법령해석례. */
+export async function interpretationDetail(id: string, timeoutMs = 6000): Promise<{ question: string; answer: string; reason: string }> {
+  const d = rec((await getJSON({ endpoint: "lawService.do", target: "expc", ID: id }, timeoutMs))["ExpcService"]);
+  return { question: strip(txt(d["질의요지"])), answer: strip(txt(d["회답"])), reason: strip(txt(d["이유"])) };
+}

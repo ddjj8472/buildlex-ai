@@ -108,6 +108,8 @@ export type Interpretation = {
   question: string;
   answer: string;
   url: string;
+  /** Excerpt of the 이유 (the 법제처's reasoning), when fetched. */
+  reason?: string;
 };
 
 export type EvalMode = "none" | "check" | "auto";

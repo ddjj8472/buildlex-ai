@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 export const dynamic = "force-dynamic";
 
-type Body = { query?: unknown; region?: unknown; facts?: unknown; history?: unknown; evalMode?: unknown; holdout?: unknown; noDoctrine?: unknown };
+type Body = { query?: unknown; region?: unknown; facts?: unknown; history?: unknown; evalMode?: unknown; holdout?: unknown; noDoctrine?: unknown; asOf?: unknown };
 
 export async function POST(request: Request) {
   let body: Body;
@@ -20,6 +20,7 @@ export async function POST(request: Request) {
     : [];
   const holdout = Array.isArray(body.holdout) ? (body.holdout as unknown[]).filter((x): x is string => typeof x === "string").slice(0, 5).map(x => x.slice(0, 300)) : [];
   const noDoctrine = body.noDoctrine === true;
+  const asOf = typeof body.asOf === "string" ? body.asOf.slice(0, 20) : undefined;
   const evalMode = (["none", "check", "auto"].includes(body.evalMode as string) ? body.evalMode : "none") as EvalMode;
 
   const encoder = new TextEncoder();
@@ -27,7 +28,7 @@ export async function POST(request: Request) {
     async start(controller) {
       const emit = (e: StreamEvent) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(e)}\n\n`));
       try {
-        await runPipeline({ query, region, facts, history, evalMode, holdout, noDoctrine, signal: request.signal }, emit);
+        await runPipeline({ query, region, facts, history, evalMode, holdout, noDoctrine, asOf, signal: request.signal }, emit);
       } catch (e) {
         emit({ type: "error", message: e instanceof Error ? e.message : "처리 중 오류가 발생했습니다." });
       } finally {

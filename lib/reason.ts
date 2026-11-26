@@ -165,7 +165,7 @@ const MET_KO: Record<Met, string> = { yes: "충족", no: "불충족", unknown: "
 // ───────────────────────────── adjudication ─────────────────────────────
 
 /** A stronger model weighs the conclusion against the counter-reading for the contested issues only. */
-export function judgePrompt(p: { query: string; c: Consolidated; structure?: string; evidenceText: string; doctrine?: string }): string {
+export function judgePrompt(p: { query: string; c: Consolidated; structure?: string; evidenceText: string; doctrine?: string; interpretations?: Interpretation[] }): string {
   const issues = contestedIssues(p.c, { query: p.query, structure: p.structure }).map(i => [
     `(${i.label}) 쟁점: ${i.issue}`,
     `  분석 결론(${i.votes.filter(v => v === i.conclusion).length}/${i.votes.length}): ${i.conclusion} — ${i.answer}`,
@@ -195,7 +195,10 @@ ${p.query}
 ${issues}
 ${p.structure ? `\n[법령 구조 분석 — 프로그램이 원문에서 계산한 관계]\n${p.structure}\n` : ""}
 [검색 근거]
-${p.evidenceText}`;
+${p.evidenceText}
+${p.interpretations?.length ? `
+[유사 법제처 해석례 — 다른 사안이다. 쟁점이 같은 원리(준용의 의미, 경과조치의 범위, 행정주체의 지위 등)를 다루면 그 논리를 참고하되, 결론은 이 사안의 원문으로 판정한다. 해석례 이후 법령이 개정됐을 수 있으니 원문과 다르면 원문을 따른다]
+${p.interpretations.map((x, i) => `(해석례${i + 1}) ${x.title} (${x.date})\n회답: ${x.answer.slice(0, 400)}${x.reason ? `\n이유(발췌): ${x.reason.slice(0, 900)}` : ""}`).join("\n\n")}` : ""}`;
 }
 
 /** Applies the adjudicator's verdicts; returns how many issues changed conclusion. */
@@ -309,5 +312,5 @@ ${p.structure}
 ${p.evidenceText}
 
 [법제처 법령해석례]
-${p.interpretations.map((x, i) => `(해석례${i + 1}) ${x.title}\n질의: ${x.question.slice(0, 400)}\n회답: ${x.answer.slice(0, 500)}`).join("\n\n") || "없음"}`;
+${p.interpretations.map((x, i) => `(해석례${i + 1}) ${x.title} (${x.date})\n질의: ${x.question.slice(0, 400)}\n회답: ${x.answer.slice(0, 500)}${x.reason ? `\n이유(발췌): ${x.reason.slice(0, 900)}` : ""}`).join("\n\n") || "없음"}`;
 }

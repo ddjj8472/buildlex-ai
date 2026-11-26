@@ -9,6 +9,7 @@ import { parseCitations, missingLaws } from "./cite.ts";
 import { formatDoctrines, matchDoctrines } from "./doctrine.ts";
 import { applyJudgment, consolidate, contestedIssues, formatAnalysis, ground, isContested, judgePrompt, needsReasoning, parseAnalysis, reasonPrompt, type Consolidated } from "./reason.ts";
 import { analyzeStructure } from "./structure.ts";
+import { findPrecedents } from "./precedent.ts";
 import { answerPrompt, analysisPrompt, formatEvidence, evaluationPrompt, rerankPrompt, type Note, type Turn } from "./prompts.ts";
 import { hybridSearch, type Reranker } from "./search.ts";
 
@@ -22,8 +23,8 @@ const JUDGE_MODELS = [...new Set([...(process.env.GEMINI_JUDGE_MODELS || "gemini
 /** Extra time a contested question may take for adjudication (route maxDuration is 120 s). */
 const JUDGE_BUDGET_MS = Number(process.env.BUILDLEX_JUDGE_BUDGET_MS || 30000);
 
-async function adjudicate(query: string, c: Consolidated, evidence: Evidence[], structure: string, doctrine: string, signal: AbortSignal | undefined): Promise<{ model?: string; changed: number; errors: string[] }> {
-  const prompt = judgePrompt({ query, c, structure, doctrine, evidenceText: formatEvidence(evidence, 20000, query) });
+async function adjudicate(query: string, c: Consolidated, evidence: Evidence[], structure: string, doctrine: string, interpretations: Interpretation[], signal: AbortSignal | undefined): Promise<{ model?: string; changed: number; errors: string[] }> {
+  const prompt = judgePrompt({ query, c, structure, doctrine, interpretations, evidenceText: formatEvidence(evidence, 20000, query) });
   const errors: string[] = [];
   const deadline = Date.now() + JUDGE_BUDGET_MS;
   for (const model of JUDGE_MODELS) {
@@ -52,6 +53,8 @@ export type AskInput = {
   holdout?: string[];
   /** Evaluation only: skip the 법리 노트 (lib/doctrine.ts), to measure the pipeline without them. */
   noDoctrine?: boolean;
+  /** Evaluation only: use only 법령해석례 dated before this date (no look-ahead past the test case). */
+  asOf?: string;
   signal?: AbortSignal;
 };
 
@@ -245,7 +248,7 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
         // scripts/eval-rag.ts 기준 AI가 읽는 근거 분량 약 48% 감소, 정답 조문 포함률은 BM25 전체 설정과 같은 수준.
         ? { region: effRegion, cited, limit: 5, maxExpansions: 2 }
         : { region: effRegion, cited, rerank: hasLLM() && !isMock() && elapsed() < 18000 ? llmReranker(input.signal, m => warnings.push(`AI 재순위 생략: ${m}`)) : undefined }),
-      lawApiEnabled() ? relevantInterpretations(a, input.holdout).catch(() => []) : Promise.resolve([]),
+      lawApiEnabled() && !needsReasoning(input.query) ? relevantInterpretations(a, input.holdout).catch(() => []) : Promise.resolve([]),
     ]);
     interpretations = interp;
     if (debug.dense === "unavailable") warnings.push("의미 검색(임베딩) 색인이 없어 키워드·법률용어 확장 검색만 사용했습니다.");
@@ -286,6 +289,12 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
   };
   applyStructure();
   const structure = () => structureLines.join("\n");
+  // 해석례: for judgment questions, similar precedents by meaning (lib/precedent.ts), with their 이유.
+  if (lawApiEnabled() && needsReasoning(input.query)) {
+    const t = Date.now();
+    interpretations = await findPrecedents({ query: input.query, analysis, structureLines, holdout: input.holdout, asOf: input.asOf }).catch(e => { warnings.push(`해석례 검색 실패: ${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`); return []; });
+    if (Date.now() - t > 8000) warnings.push(`해석례 검색에 ${Math.round((Date.now() - t) / 1000)}초가 걸렸습니다.`);
+  }
   let notes = matchNotes(`${analysis.standalone} ${analysis.legalTerms.join(" ")}`, evidence.map(e => e.chunk.id));
   // 법리 노트: general interpretation principles matched on the question itself (lib/doctrine.ts).
   const doctrines = input.noDoctrine ? [] : matchDoctrines(`${input.query} ${analysis.standalone}`);
@@ -308,7 +317,7 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
     reasoning = r?.c ?? null;
     if (reasoning && isContested(reasoning, { query: input.query, structure: structure() }) && elapsed() < 40000) {
       const t = Date.now();
-      const j = await stage(emit, "reason", () => adjudicate(input.query, reasoning!, evidence, structure(), doctrine, input.signal),
+      const j = await stage(emit, "reason", () => adjudicate(input.query, reasoning!, evidence, structure(), doctrine, interpretations, input.signal),
         x => x.model ? `판정(${x.model}): 쟁점 ${contestedIssues(reasoning!, { query: input.query, structure: structure() }).length}개 검토 · 결론 변경 ${x.changed}개` : `판정 실패 (${x.errors.join(" | ")})`).catch(() => null);
       shift = Date.now() - t;
       if (j && !j.model) { const m = `결론 판정 모델을 호출하지 못했습니다: ${j.errors.join(" | ").slice(0, 200)}`; warnings.push(m); emit({ type: "warning", message: m }); }
