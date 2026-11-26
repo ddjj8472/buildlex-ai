@@ -81,7 +81,16 @@ export function searchPrecedentIndex(p: { queryVec: Float32Array | null; queryTe
   const fused = new Map<number, number>();
   dense.forEach((v, r) => fused.set(v.i, (fused.get(v.i) || 0) + 2 / (60 + r + 1)));
   lex.forEach((v, r) => fused.set(v.i, (fused.get(v.i) || 0) + 1 / (60 + r + 1)));
-  return [...fused].sort((a, b) => b[1] - a[1]).slice(0, p.limit ?? 3).map(([i, score]) => {
+  // The API lists some 해석례 twice (same 안건번호 under two ids): keep one per case.
+  const seen = new Set<string>();
+  const unique = [...fused].sort((a, b) => b[1] - a[1]).filter(([i]) => {
+    const c = x.cases[i];
+    const key = c.no || `${c.title}|${c.date}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return unique.slice(0, p.limit ?? 3).map(([i, score]) => {
     const c = x.cases[i];
     return {
       title: c.title, agency: "법제처", date: c.date, no: c.no, score, qSim: qSim[i],
