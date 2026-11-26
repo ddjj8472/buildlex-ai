@@ -28,7 +28,7 @@ async function adjudicate(query: string, c: Consolidated, evidence: Evidence[], 
     if (left < 5000) break;
     try {
       const raw = await generateJSON<unknown>(prompt, { model, only: true, thinking: "low", timeoutMs: left, signal, maxTokens: 4096 });
-      const changed = applyJudgment(c, raw, model);
+      const changed = applyJudgment(c, raw, model, { query, structure });
       if (c.issues.some(i => i.judged)) return { model, changed, errors };
       errors.push(`${model}: 판정 형식 불일치`);
     } catch (e) { errors.push(`${model}: ${(e instanceof Error ? e.message : String(e)).slice(0, 90)}`); }
@@ -301,12 +301,12 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
   let shift = 0;
   if (hasLLM() && !isMock() && needsReasoning(input.query) && elapsed() < 24000) {
     const r = await stage(emit, "reason", () => runReasoning(input.query, evidence, interpretations, doctrine, structure(), input.signal, elapsed),
-      ({ c, errors }) => [c ? `독립 분석 ${c.runs}개 · ${c.issues.every(i => i.agree) ? "결론 일치" : "엇갈림"}${c.issues.some(i => /반대해석/.test(i.basis || "")) ? " · 반대해석 근거" : ""}${isContested(c) ? " → 판정 모델로 검토" : ""}${c.issues.some(i => i.dropped.length) ? " · 근거 없는 조건 제외" : ""}` : "분석 실패", errors.length ? `(${errors.join(" | ")})` : ""].filter(Boolean).join(" ")).catch(() => null);
+      ({ c, errors }) => [c ? `독립 분석 ${c.runs}개 · ${c.issues.every(i => i.agree) ? "결론 일치" : "엇갈림"}${c.issues.some(i => /반대해석/.test(i.basis || "")) ? " · 반대해석 근거" : ""}${isContested(c, { query: input.query, structure: structure() }) ? " → 판정 모델로 검토" : ""}${c.issues.some(i => i.dropped.length) ? " · 근거 없는 조건 제외" : ""}` : "분석 실패", errors.length ? `(${errors.join(" | ")})` : ""].filter(Boolean).join(" ")).catch(() => null);
     reasoning = r?.c ?? null;
-    if (reasoning && isContested(reasoning) && elapsed() < 40000) {
+    if (reasoning && isContested(reasoning, { query: input.query, structure: structure() }) && elapsed() < 40000) {
       const t = Date.now();
       const j = await stage(emit, "reason", () => adjudicate(input.query, reasoning!, evidence, structure(), doctrine, input.signal),
-        x => x.model ? `판정(${x.model}): 쟁점 ${contestedIssues(reasoning!).length}개 검토 · 결론 변경 ${x.changed}개` : `판정 실패 (${x.errors.join(" | ")})`).catch(() => null);
+        x => x.model ? `판정(${x.model}): 쟁점 ${contestedIssues(reasoning!, { query: input.query, structure: structure() }).length}개 검토 · 결론 변경 ${x.changed}개` : `판정 실패 (${x.errors.join(" | ")})`).catch(() => null);
       shift = Date.now() - t;
       if (j && !j.model) { const m = `결론 판정 모델을 호출하지 못했습니다: ${j.errors.join(" | ").slice(0, 200)}`; warnings.push(m); emit({ type: "warning", message: m }); }
     }
@@ -320,7 +320,7 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
       answer = extractiveAnswer(evidence, analysis);
       emit({ type: "delta", text: answer });
     } else {
-      const contested = isContested(reasoning);
+      const contested = isContested(reasoning, { query: input.query, structure: structure() });
       const prompt = answerPrompt({ query: input.query, analysis, region: effRegion?.label || "", evidence, interpretations, notes, warnings, history: input.history || [], missingLaws: absent, doctrine, reasoning: reasoning ? formatAnalysis(reasoning) : undefined, structure: structure(), contested });
       // Retry transient overload (429/503) with backoff, then fall back to other models,
       // and finally to an extractive answer so the retrieved evidence is never lost.

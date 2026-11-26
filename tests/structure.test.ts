@@ -65,6 +65,11 @@ test("reasoning: a conclusion resting on 반대해석 or a split vote is contest
   const split = consolidate([{ model: "a", a: parseAnalysis(issue("예", "문언")) }, { model: "b", a: parseAnalysis(issue("아니오", "문언")) }]);
   assert.equal(isContested(split), true);
   assert.equal(agreeContrario!.issues[0].counter, "c");
+  // Code-side signals: a 준용/적용 제외/부칙 relation, or a scope question answered "아니오".
+  assert.equal(isContested(agreeLiteral, { structure: "[준용] 건축법 제19조⑦ …" }), true);
+  const agreeNo = consolidate([1, 2, 3].map(() => ({ model: "m", a: parseAnalysis(issue("아니오", "문언")) })));
+  assert.equal(isContested(agreeNo, { query: "대수선허가가 포함되는지?" }), true);
+  assert.equal(isContested(agreeNo, { query: "건폐율은 얼마인가?" }), false);
 });
 
 test("adjudication: only contested issues go to the judge, and a verdict overrides the analysis conclusion", async () => {

@@ -164,12 +164,9 @@ const MET_KO: Record<Met, string> = { yes: "충족", no: "불충족", unknown: "
 
 // ───────────────────────────── adjudication ─────────────────────────────
 
-/** Issues the adjudicator has to decide: split votes, or a conclusion that rests on 반대해석. */
-export const contestedIssues = (c: Consolidated) => c.issues.filter(i => !i.agree || /반대해석/.test(i.basis || ""));
-
 /** A stronger model weighs the conclusion against the counter-reading for the contested issues only. */
 export function judgePrompt(p: { query: string; c: Consolidated; structure?: string; evidenceText: string; doctrine?: string }): string {
-  const issues = contestedIssues(p.c).map(i => [
+  const issues = contestedIssues(p.c, { query: p.query, structure: p.structure }).map(i => [
     `(${i.label}) 쟁점: ${i.issue}`,
     `  분석 결론(${i.votes.filter(v => v === i.conclusion).length}/${i.votes.length}): ${i.conclusion} — ${i.answer}`,
     `  그 근거 유형: ${i.basis || "-"}`,
@@ -177,7 +174,7 @@ export function judgePrompt(p: { query: string; c: Consolidated; structure?: str
     i.counter ? `  반론: ${i.counter}` : "",
     i.alt ? `  반대 결론(${i.votes.filter(v => v === i.alt!.conclusion).length}/${i.votes.length}): ${i.alt.conclusion} — ${i.alt.answer}` : "",
   ].filter(Boolean).join("\n")).join("\n\n");
-  return `너는 대한민국 법제처의 선임 법제관이다. 아래 쟁점은 하위 분석에서 결론이 엇갈렸거나 "그렇게 적혀 있지 않으니 아니다"라는 반대해석에 기대고 있다. [검색 근거] 원문과 [법령 구조 분석]만으로 결론을 다시 판정해 JSON으로만 답한다.
+  return `너는 대한민국 법제처의 선임 법제관이다. 아래 쟁점은 하위 분석의 결론을 그대로 믿기 어려운 것이다(결론이 엇갈렸거나, 반대해석에 기대거나, 준용·적용 제외·부칙처럼 조문 사이의 관계로 결론이 정해지는 쟁점). 하위 분석의 결론에 끌려가지 말고 [검색 근거] 원문과 [법령 구조 분석]만으로 결론을 다시 판정해 JSON으로만 답한다.
 
 [판정 방법]
 1. 결론을 좌우하는 문언이 대상을 명시적으로 한정·배제하는지 확인한다. 명시적이면 그 문언대로 판정한다.
@@ -202,12 +199,13 @@ ${p.evidenceText}`;
 }
 
 /** Applies the adjudicator's verdicts; returns how many issues changed conclusion. */
-export function applyJudgment(c: Consolidated, raw: unknown, model: string): number {
+export function applyJudgment(c: Consolidated, raw: unknown, model: string, ctx: ContestContext = {}): number {
   const list = arr((raw && typeof raw === "object" ? (raw as Record<string, unknown>).issues : undefined) ?? raw);
   let changed = 0;
+  const pool = contestedIssues(c, ctx);
   for (const x of list) {
     const label = str(x.label, 8);
-    const issue = c.issues.find(i => i.label === label) ?? (contestedIssues(c).length === 1 ? contestedIssues(c)[0] : undefined);
+    const issue = c.issues.find(i => i.label === label) ?? (pool.length === 1 ? pool[0] : undefined);
     if (!issue) continue;
     const cs = str(x.conclusion, 10);
     const conclusion = (VERDICTS.find(v => cs.startsWith(v)) ?? "판단불가") as Verdict;
@@ -253,9 +251,23 @@ export function formatAnalysis(c: Consolidated): string {
 
 // ───────────────────────────── prompt ─────────────────────────────
 
-/** A conclusion that should not be taken at face value: the votes split, or it rests on 반대해석. */
-export function isContested(c: Consolidated | null): boolean {
-  return !!c && c.issues.some(i => !i.agree || /반대해석/.test(i.basis || ""));
+/**
+ * Issues that should not be taken at face value. The model's own label (basis) is not enough — in tests
+ * three small-model runs agreed on a literal reading and labelled it "문언" — so code-side signals count too:
+ *  - the votes split, or the basis is 반대해석;
+ *  - the question turns on a relation the structure analysis found (준용, 적용 제외, 부칙): the place where
+ *    literal reading of one provision goes wrong;
+ *  - a scope question ("포함되는지", "적용되는지", "한정되는지" …) answered "아니오": the shape of an a-contrario answer.
+ */
+export type ContestContext = { query?: string; structure?: string };
+const SCOPE_Q = /(포함되|해당하|해당되|적용되|적용받|준용하|준용되|한정되|제출하여야\s*하|해야\s*하|하여야\s*하)는지/;
+export function contestedIssues(c: Consolidated, ctx: ContestContext = {}) {
+  const structural = /\[(준용|적용 제외|부칙)/.test(ctx.structure || "");
+  const scope = SCOPE_Q.test(ctx.query || "");
+  return c.issues.filter(i => !i.agree || /반대해석/.test(i.basis || "") || structural || (scope && i.conclusion === "아니오"));
+}
+export function isContested(c: Consolidated | null, ctx: ContestContext = {}): boolean {
+  return !!c && contestedIssues(c, ctx).length > 0;
 }
 
 export function reasonPrompt(p: { query: string; evidenceText: string; interpretations: Interpretation[]; doctrine?: string; structure?: string }): string {
