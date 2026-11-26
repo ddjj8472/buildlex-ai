@@ -14,6 +14,8 @@ const nextConfig: NextConfig = {
       "./node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs",
       "./node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm",
     ],
+    // Preview-only evaluation runner reads the test cases.
+    "/api/eval-run": ["./tests/minwon.json"],
   },
 };
 

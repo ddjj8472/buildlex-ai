@@ -44,23 +44,40 @@ async function pool<T, R>(items: T[], size: number, fn: (x: T) => Promise<R>, de
   return out;
 }
 
-function copyCached(): boolean {
-  const meta = path.join(CACHE_DIR, "expc.json");
-  if (!fs.existsSync(meta)) return false;
+type Meta = { version: number; builtAt: string; complete?: boolean; dim: number; cases: Case[]; rows: number[]; parts: string[]; scales: number[] };
+
+function readCache(): { meta: Meta; bin: Int8Array } | null {
   try {
-    const m = JSON.parse(fs.readFileSync(meta, "utf8")) as { version: number; builtAt: string };
-    if (m.version !== VERSION || Date.now() - Date.parse(m.builtAt) > MAX_AGE_MS) return false;
-    fs.mkdirSync(OUT_DIR, { recursive: true });
-    for (const f of ["expc.json", "expc.bin"]) fs.copyFileSync(path.join(CACHE_DIR, f), path.join(OUT_DIR, f));
-    log(`cache hit (${m.builtAt})`);
-    return true;
-  } catch { return false; }
+    const meta = JSON.parse(fs.readFileSync(path.join(CACHE_DIR, "expc.json"), "utf8")) as Meta;
+    if (meta.version !== VERSION) return null;
+    const buf = fs.readFileSync(path.join(CACHE_DIR, "expc.bin"));
+    return { meta, bin: new Int8Array(buf.buffer, buf.byteOffset, buf.byteLength) };
+  } catch { return null; }
+}
+
+/** A complete cache younger than MAX_AGE_MS is used as is. */
+function copyCached(prev: ReturnType<typeof readCache>): boolean {
+  if (!prev?.meta.complete || Date.now() - Date.parse(prev.meta.builtAt) > MAX_AGE_MS) return false;
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+  for (const f of ["expc.json", "expc.bin"]) fs.copyFileSync(path.join(CACHE_DIR, f), path.join(OUT_DIR, f));
+  log(`cache hit (${prev.meta.builtAt}, ${prev.meta.cases.length} cases)`);
+  return true;
 }
 
 async function main() {
   if (!lawApiEnabled()) { log("LAW_API_OC not set — skipped"); return; }
   if (!localModelAvailable()) { log("local embedding model missing — skipped"); return; }
-  if (process.env.BUILDLEX_EXPC_FORCE !== "1" && copyCached()) return;
+  const prev = process.env.BUILDLEX_EXPC_FORCE === "1" ? null : readCache();
+  if (copyCached(prev)) return;
+  // Vectors already computed by an earlier (possibly time-limited) build are reused: 해석례 do not change.
+  const old = new Map<string, { c: Case; q?: [Int8Array, number]; r?: [Int8Array, number] }>();
+  if (prev) prev.meta.rows.forEach((ci, k) => {
+    const c = prev.meta.cases[ci];
+    const e = old.get(c.id) ?? { c };
+    e[prev.meta.parts[k] as "q" | "r"] = [prev.bin.slice(k * prev.meta.dim, (k + 1) * prev.meta.dim), prev.meta.scales[k]];
+    old.set(c.id, e);
+  });
+  if (old.size) log(`reusing ${old.size} embedded cases from the cache`);
 
   // 1. Lists (all pages) for each core law.
   const seen = new Map<string, Omit<Case, "q" | "a" | "r">>();
@@ -81,6 +98,8 @@ async function main() {
   const heads = [...seen.values()];
   let done = 0;
   const cases = (await pool(heads, 6, async h => {
+    const o = old.get(h.id);
+    if (o?.q && o.r) return { ...h, q: o.c.q, a: o.c.a, r: o.c.r };
     const d = await retry(() => interpretationDetail(h.id, 15000)).catch(() => null);
     if (++done % 100 === 0) log(`details ${done}/${heads.length}`);
     return d && (d.question || d.answer) ? { ...h, q: d.question.slice(0, 1500), a: d.answer.slice(0, 1500), r: d.reason.slice(0, 4000) } : null;
@@ -90,25 +109,32 @@ async function main() {
   // 3. Embeddings: q-passage and r-passage per case.
   const rows: number[] = [], parts: string[] = [], scales: number[] = [], vecs: Int8Array[] = [];
   let dim = 0;
-  for (let i = 0; i < cases.length && Date.now() < DEADLINE; i++) {
+  let fresh = 0, embedded = 0;
+  for (let i = 0; i < cases.length; i++) {
     const c = cases[i];
+    const o = old.get(c.id);
+    if (!(o?.q && o.r) && Date.now() >= DEADLINE) continue; // out of time: the next build embeds the rest
     for (const [part, text] of [["q", `${c.title}\n${c.q}`], ["r", `${c.title}\n${c.a}\n${c.r.slice(0, 1200)}`]] as const) {
-      const v = await embedLocal(`passage: ${text}`);
-      dim = v.length;
-      const { q, scale } = quantize(v);
+      let q: Int8Array, scale: number;
+      const cached = o?.[part];
+      if (cached) [q, scale] = cached;
+      else { const v = await embedLocal(`passage: ${text}`); ({ q, scale } = quantize(v)); fresh++; }
+      dim = q.length;
       rows.push(i); parts.push(part); scales.push(scale); vecs.push(q);
     }
-    if ((i + 1) % 200 === 0) log(`embedded ${i + 1}/${cases.length}`);
+    embedded++;
+    if (fresh && fresh % 400 === 0) log(`embedded ${fresh} new passages (${embedded}/${cases.length} cases)`);
   }
   const bin = new Int8Array(vecs.length * dim);
   vecs.forEach((v, k) => bin.set(v, k * dim));
-  const meta = { version: VERSION, builtAt: new Date().toISOString(), model: "koen-e5-tiny:model_qint8.onnx", dim, scope: QUERIES, cases, rows, parts, scales };
+  const complete = embedded === cases.length && cases.length >= heads.length * 0.98;
+  const meta = { version: VERSION, builtAt: new Date().toISOString(), complete, model: "koen-e5-tiny:model_qint8.onnx", dim, scope: QUERIES, cases, rows, parts, scales };
   for (const dir of [OUT_DIR, CACHE_DIR]) {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "expc.json"), JSON.stringify(meta));
     fs.writeFileSync(path.join(dir, "expc.bin"), Buffer.from(bin.buffer));
   }
-  log(`wrote ${cases.length} cases, ${vecs.length} vectors`);
+  log(`wrote ${embedded}/${cases.length} cases, ${vecs.length} vectors (${fresh} new)${complete ? "" : " — incomplete, the next build continues"}`);
 }
 
 // ── 제·개정이유 of core-law versions (data/index/law-reasons.json), for lib/legislative.ts ──
@@ -140,9 +166,10 @@ async function buildReasons() {
   log(`law-reasons: ${Object.values(out).reduce((s, x) => s + x.length, 0)}/${jobs.length} versions`);
 }
 
-main()
-  .catch(e => { console.error("[expc] failed (build continues without the index):", e); })
-  .then(() => buildReasons())
-  .catch(e => { console.error("[expc] law-reasons failed (build continues without them):", e); })
+// The reasons are network-bound and the embedding CPU-bound, so they run side by side.
+Promise.all([
+  main().catch(e => { console.error("[expc] failed (build continues without the index):", e); }),
+  buildReasons().catch(e => { console.error("[expc] law-reasons failed (build continues without them):", e); }),
+])
   // Never fail or hang the build: onnxruntime / keep-alive sockets must not hold the process open.
   .finally(() => process.exit(0));
