@@ -7,9 +7,9 @@
 //
 // Blocking the same 민원 (evaluation only — production requests pass no holdout):
 //  - the held-out case itself, by 안건번호 or title;
-//  - near-duplicates: a case whose question passage is almost the same as the query (cosine ≥ DUP_SIM),
-//    which catches 재질의 and the same issue sent by another agency under another title;
-//  - anything dated on or after `asOf` (no look-ahead past the test case).
+//  - anything dated on or after `asOf` (no look-ahead past the test case; this also removes a duplicate
+//    listing of the case itself, which carries the same date).
+// Similar cases dated before the test case stay: they were public when the 민원 was asked.
 import fs from "node:fs";
 import path from "node:path";
 import { BM25Index } from "./bm25.ts";
@@ -19,8 +19,6 @@ type Case = { id: string; no: string; title: string; date: string; asker: string
 type Index = { cases: Case[]; rows: Int32Array; isQ: Uint8Array; scales: Float32Array; vecs: Int8Array; dim: number; bm25: BM25Index; builtAt: string };
 
 const DATA_DIR = process.env.BUILDLEX_DATA_DIR || path.join(process.cwd(), "data", "index");
-/** Question-passage cosine at or above which a case counts as the same 민원 (blocked when holding out). */
-export const DUP_SIM = Number(process.env.BUILDLEX_EXPC_DUP_SIM || 0.93);
 
 let cached: Index | null | undefined;
 
@@ -64,14 +62,12 @@ export function searchPrecedentIndex(p: { queryVec: Float32Array | null; queryTe
       if (x.isQ[row]) { if (s > qSim[c]) qSim[c] = s; } else if (s > rSim[c]) rSim[c] = s;
     }
   }
-  const holding = !!(p.holdout?.length || p.holdoutNos?.length || p.asOf);
   const cutoff = p.asOf ? dateKey(p.asOf) : 0;
   const blocked = (i: number) => {
     const c = x.cases[i];
     if (p.holdoutNos?.includes(c.no)) return true;
     if (p.holdout?.some(h => sameTitle(h, c.title))) return true;
     if (cutoff && (dateKey(c.date) === 0 || dateKey(c.date) >= cutoff)) return true;
-    if (holding && qSim[i] >= DUP_SIM) return true;
     return false;
   };
   const dense = Array.from({ length: n }, (_, i) => ({ i, s: 0.65 * qSim[i] + 0.35 * rSim[i] })).filter(v => v.s > 0 && !blocked(v.i)).sort((a, b) => b.s - a.s).slice(0, 60);
