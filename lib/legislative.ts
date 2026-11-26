@@ -126,7 +126,9 @@ export async function legislativePurpose(evidence: Evidence[], terms: string[], 
   const lines = await Promise.all(picks.map(async p => {
     const paras = p.reason ? p.reason.split("\n") : lawApiEnabled() ? await fetchLawReasons(p.mst).catch(() => [] as string[]) : [];
     const text = excerptReasons(paras, p.chunk.articleNo, terms);
-    return text ? `[입법 취지] ${p.chunk.lawName} ${p.chunk.articleNo}${p.chunk.heading ? `(${p.chunk.heading})` : ""}의 해당 부분은 ${p.date.replace(/-/g, ".")} ${p.kind}됨 — 그 개정의 제·개정이유: "${text}"` : "";
+    // A reason that is only its heading ("[일부개정] ◇ 개정이유") says nothing about the provision.
+    const substance = text.replace(/\[[^\]]*\]|◇|개정이유|제정이유|주요내용|\s/g, "");
+    return substance.length >= 40 ? `[입법 취지] ${p.chunk.lawName} ${p.chunk.articleNo}${p.chunk.heading ? `(${p.chunk.heading})` : ""}의 해당 부분은 ${p.date.replace(/-/g, ".")} ${p.kind}됨 — 그 개정의 제·개정이유: "${text}"` : "";
   }));
   return lines.filter(Boolean);
 }
