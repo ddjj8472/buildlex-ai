@@ -134,10 +134,10 @@ const REASON_VOTERS = (process.env.GEMINI_REASON_MODELS || `${MODEL},${FAST_MODE
 
 async function runReasoning(query: string, evidence: Evidence[], interpretations: Interpretation[], doctrine: string, structure: string, signal: AbortSignal | undefined, elapsed: () => number): Promise<{ c: Consolidated | null; errors: string[] }> {
   const prompt = reasonPrompt({ query, evidenceText: formatEvidence(evidence, 24000, query), interpretations, doctrine, structure });
-  const budget = Math.min(strongOnly() ? 35000 : 22000, (strongOnly() ? 55000 : 40000) - elapsed());
+  const budget = Math.min(22000, 40000 - elapsed());
   const errors: string[] = [];
   if (budget < 6000) return { c: null, errors: ["시간 부족"] };
-  const run = (model: string, temperature: number, timeoutMs: number) => generateJSON<unknown>(prompt, { model, temperature, timeoutMs, signal, maxTokens: 8192, thinking: "low" })
+  const run = (model: string, temperature: number, timeoutMs: number) => generateJSON<unknown>(prompt, { model, temperature, timeoutMs, signal, maxTokens: 8192, thinking: "low", allowLite: true })
     .then(raw => {
       const a = ground(parseAnalysis(raw), evidence);
       if (!a.issues.length) {
@@ -148,10 +148,10 @@ async function runReasoning(query: string, evidence: Evidence[], interpretations
       return { model, a };
     })
     .catch(e => { errors.push(`${model}: ${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`); throw e; });
-  // Self-consistency: independent analyses in parallel, majority vote per issue. Evaluation with strong
-  // models only: two samples of the first strong model (temperature 0 and 0.7), to keep within quota.
-  const voters = strongOnly() ? [{ model: STRONG_MODELS[0], temperature: 0 }, { model: STRONG_MODELS[0], temperature: 0.7 }] : REASON_VOTERS.slice(0, 3);
-  const settled = await Promise.allSettled(voters.map(v => run(v.model, v.temperature, budget)));
+  // Self-consistency: independent analyses in parallel, majority vote per issue. These stay on the lite
+  // models even in strong-model evaluation (the larger model was too slow for three analyses within the
+  // function limit); the judges and the answer writer, which decide the conclusion, are the larger models.
+  const settled = await Promise.allSettled(REASON_VOTERS.slice(0, 3).map(v => run(v.model, v.temperature, budget)));
   const runs = settled.flatMap(r => (r.status === "fulfilled" ? [r.value] : []));
   return { c: consolidate(runs), errors };
 }

@@ -1,6 +1,6 @@
 // Preview-only evaluation runner: GET ?i=<index in tests/minwon.json>. Runs the pipeline exactly as /api/ask
 // with the test case held out — 법리 노트 off, the case's own 해석례 blocked by 안건명 and 안건번호, only
-// 해석례 and amendments dated before the case (asOf), larger models only (no lite fallback; ?lite=1 allows it) — and returns the answer next to the 법제처 answer.
+// 해석례 and amendments dated before the case (asOf), larger models for judging and the answer (the sub-analyses stay on lite; ?lite=1 allows lite everywhere) — and returns the answer next to the 법제처 answer.
 // Disabled on production.
 import fs from "node:fs";
 import path from "node:path";
