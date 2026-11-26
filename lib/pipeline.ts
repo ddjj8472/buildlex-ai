@@ -7,12 +7,15 @@ import { fetchAppendix, lawApiEnabled, searchInterpretations } from "./law-api.t
 import { FALLBACK_MODELS, FAST_MODEL, MODEL, generateJSON, hasLLM, isMock, streamText } from "./llm.ts";
 import { parseCitations, missingLaws } from "./cite.ts";
 import { formatDoctrines, matchDoctrines } from "./doctrine.ts";
-import { consolidate, formatAnalysis, ground, needsReasoning, parseAnalysis, reasonPrompt, type Consolidated } from "./reason.ts";
+import { consolidate, formatAnalysis, ground, isContested, needsReasoning, parseAnalysis, reasonPrompt, type Consolidated } from "./reason.ts";
+import { analyzeStructure } from "./structure.ts";
 import { answerPrompt, analysisPrompt, formatEvidence, evaluationPrompt, rerankPrompt, type Note, type Turn } from "./prompts.ts";
 import { hybridSearch, type Reranker } from "./search.ts";
 
 /** BUILDLEX_RAG_LEAN=1: rely on hybrid (BM25+vector) ranking, skip the LLM rerank call, pass fewer provisions. */
 const LEAN = process.env.BUILDLEX_RAG_LEAN === "1";
+/** Stronger model that writes the answer when the analysis is contested (split votes or 반대해석). */
+const JUDGE_MODEL = process.env.GEMINI_JUDGE_MODEL || "gemini-flash-latest";
 import { lawKeyOf, formatDate } from "./text.ts";
 import type { EvalMode, Evidence, EvidenceView, Interpretation, QueryAnalysis, SiteFacts, StageId, StreamEvent } from "./types.ts";
 import { verifyAnswer } from "./verify.ts";
@@ -70,8 +73,8 @@ async function relevantInterpretations(a: QueryAnalysis, holdout: string[] = [])
 const REASON_VOTERS = (process.env.GEMINI_REASON_MODELS || `${MODEL},${FAST_MODEL},${MODEL}@0.7`).split(",").map(x => x.trim()).filter(Boolean)
   .map(x => { const [model, t] = x.split("@"); return { model, temperature: t ? Number(t) : 0 }; });
 
-async function runReasoning(query: string, evidence: Evidence[], interpretations: Interpretation[], doctrine: string, signal: AbortSignal | undefined, elapsed: () => number): Promise<{ c: Consolidated | null; errors: string[] }> {
-  const prompt = reasonPrompt({ query, evidenceText: formatEvidence(evidence, 24000, query), interpretations, doctrine });
+async function runReasoning(query: string, evidence: Evidence[], interpretations: Interpretation[], doctrine: string, structure: string, signal: AbortSignal | undefined, elapsed: () => number): Promise<{ c: Consolidated | null; errors: string[] }> {
+  const prompt = reasonPrompt({ query, evidenceText: formatEvidence(evidence, 24000, query), interpretations, doctrine, structure });
   const budget = Math.min(22000, 40000 - elapsed());
   const errors: string[] = [];
   if (budget < 6000) return { c: null, errors: ["시간 부족"] };
@@ -250,19 +253,34 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
     const ord = evidence.filter(e => e.via === "ordinance").length;
     return `위임·연결 조문 ${exp}건 · 조례 ${ord}건 · 별표 본문 ${r.fetched}건`;
   });
+  // 법령 구조 분석: 준용·적용 제외·용어 정의·부칙 relations computed from the text (lib/structure.ts);
+  // the provisions they point to are added to the evidence so the analysis can quote them.
+  let structureLines: string[] = [];
+  const applyStructure = () => {
+    const s = analyzeStructure(evidence, input.query);
+    let n = Math.max(0, ...evidence.map(e => e.n));
+    for (const a of s.add) evidence.push({ n: ++n, chunk: a.chunk, score: 0, via: "expand", reason: `구조 분석: ${a.reason}` });
+    structureLines = s.lines;
+  };
+  applyStructure();
+  const structure = () => structureLines.join("\n");
   let notes = matchNotes(`${analysis.standalone} ${analysis.legalTerms.join(" ")}`, evidence.map(e => e.chunk.id));
-  // 법리 노트: concept explanations matched on the question itself (lib/doctrine.ts).
+  // 법리 노트: general interpretation principles matched on the question itself (lib/doctrine.ts).
   const doctrines = input.noDoctrine ? [] : matchDoctrines(`${input.query} ${analysis.standalone}`);
   const doctrine = formatDoctrines(doctrines);
-  const shownNotes = () => [...doctrines.map(d => ({ title: `법리 노트 · ${d.title}`, text: d.text })), ...notes.map(n => ({ title: n.title, text: n.text }))];
+  const shownNotes = () => [
+    ...(structureLines.length ? [{ title: "법령 구조 분석 (원문에서 자동 계산)", text: structureLines.join("\n") }] : []),
+    ...doctrines.map(d => ({ title: `법리 노트 · ${d.title}`, text: d.text })),
+    ...notes.map(n => ({ title: n.title, text: n.text })),
+  ];
   emit({ type: "evidence", evidence: evidence.map(e => toView(e, effRegion?.key)), interpretations, notes: shownNotes() });
   for (const w of warnings) emit({ type: "warning", message: w });
 
   // 4. 법리 분석 — independent syllogistic analyses vote; ungrounded conditions are dropped (lib/reason.ts).
   let reasoning: Consolidated | null = null;
   if (hasLLM() && !isMock() && needsReasoning(input.query) && elapsed() < 24000) {
-    const r = await stage(emit, "reason", () => runReasoning(input.query, evidence, interpretations, doctrine, input.signal, elapsed),
-      ({ c, errors }) => [c ? `독립 분석 ${c.runs}개 · ${c.issues.every(i => i.agree) ? "결론 일치" : "엇갈림 → 다수결"}${c.issues.some(i => i.dropped.length) ? " · 근거 없는 조건 제외" : ""}` : "분석 실패", errors.length ? `(${errors.join(" | ")})` : ""].filter(Boolean).join(" ")).catch(() => null);
+    const r = await stage(emit, "reason", () => runReasoning(input.query, evidence, interpretations, doctrine, structure(), input.signal, elapsed),
+      ({ c, errors }) => [c ? `독립 분석 ${c.runs}개 · ${c.issues.every(i => i.agree) ? "결론 일치" : "엇갈림"}${c.issues.some(i => /반대해석/.test(i.basis || "")) ? " · 반대해석 근거" : ""}${isContested(c) ? " → 판정 모델로 검토" : ""}${c.issues.some(i => i.dropped.length) ? " · 근거 없는 조건 제외" : ""}` : "분석 실패", errors.length ? `(${errors.join(" | ")})` : ""].filter(Boolean).join(" ")).catch(() => null);
     reasoning = r?.c ?? null;
   } else emit({ type: "stage", id: "reason", status: "skipped", detail: needsReasoning(input.query) ? "시간 부족" : "판단형 질문 아님" });
 
@@ -274,10 +292,12 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
       answer = extractiveAnswer(evidence, analysis);
       emit({ type: "delta", text: answer });
     } else {
-      const prompt = answerPrompt({ query: input.query, analysis, region: effRegion?.label || "", evidence, interpretations, notes, warnings, history: input.history || [], missingLaws: absent, doctrine, reasoning: reasoning ? formatAnalysis(reasoning) : undefined });
+      const contested = isContested(reasoning);
+      const prompt = answerPrompt({ query: input.query, analysis, region: effRegion?.label || "", evidence, interpretations, notes, warnings, history: input.history || [], missingLaws: absent, doctrine, reasoning: reasoning ? formatAnalysis(reasoning) : undefined, structure: structure(), contested });
       // Retry transient overload (429/503) with backoff, then fall back to other models,
       // and finally to an extractive answer so the retrieved evidence is never lost.
-      const models = [...new Set([MODEL, ...FALLBACK_MODELS])];
+      // A contested analysis is adjudicated by the stronger model first (model routing: only hard questions pay for it).
+      const models = [...new Set([...(contested ? [JUDGE_MODEL] : []), MODEL, ...FALLBACK_MODELS])];
       let lastError = "";
       const stalled = new Set<string>();
       for (const [i, model] of models.flatMap(m => [m, m]).entries()) {
@@ -292,7 +312,8 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
           const left = 52000 - elapsed();
           for await (const d of streamText(prompt, { model, signal: input.signal, timeoutMs: Math.max(10000, left), firstTokenMs: Math.min(15000, Math.max(6000, left - 20000)) })) { answer += d; emit({ type: "delta", text: d }); }
           if (answer.trim()) {
-            if (model !== MODEL) emit({ type: "warning", message: `기본 모델이 혼잡해 ${model} 모델로 답변했습니다.` });
+            if (model === JUDGE_MODEL && contested) emit({ type: "warning", message: `분석이 엇갈리거나 반대해석에 기댄 쟁점이라 ${model} 모델이 결론을 검토했습니다.` });
+            else if (model !== MODEL) emit({ type: "warning", message: `기본 모델이 혼잡해 ${model} 모델로 답변했습니다.` });
             return answer;
           }
         } catch (e) {
@@ -331,6 +352,7 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
       const a2: QueryAnalysis = { ...analysis, subQueries: [...(ev.retryQueries || []), ...analysis.subQueries].slice(0, 3) };
       ({ evidence, debug } = await stage(emit, "retrieve", () => retrieve(a2), r => `재검색 · ${r.evidence.length}건`));
       await stage(emit, "expand", expandStage, () => "재확장");
+      applyStructure();
       notes = matchNotes(`${a2.standalone} ${a2.legalTerms.join(" ")}`, evidence.map(e => e.chunk.id));
       emit({ type: "evidence", evidence: evidence.map(e => toView(e, effRegion?.key)), interpretations, notes: shownNotes() });
       emit({ type: "reset" });

@@ -92,7 +92,7 @@ export async function* streamText(prompt: string, opts: { model?: string; timeou
     body: JSON.stringify({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       // Deterministic decoding: the same question should get the same legal conclusion.
-      generationConfig: { temperature: 0, maxOutputTokens: opts.maxTokens ?? 3000 },
+      generationConfig: { temperature: 0, maxOutputTokens: opts.maxTokens ?? 4000 },
     }),
   });
   if (!res.ok || !res.body) {
@@ -102,6 +102,10 @@ export async function* streamText(prompt: string, opts: { model?: string; timeou
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
+  // The last chunk of a complete answer carries finishReason (STOP, or MAX_TOKENS when the cap is hit).
+  // A stream that ends without one was cut off (overload mid-answer): throw so the caller retries
+  // instead of returning the fragment as the answer.
+  let finish = "";
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -116,10 +120,13 @@ export async function* streamText(prompt: string, opts: { model?: string; timeou
       try {
         const chunk = JSON.parse(json) as GeminiResponse;
         const text = chunk.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
+        if (chunk.candidates?.[0]?.finishReason) finish = chunk.candidates[0].finishReason;
         if (text) { clear(); yield text; }
       } catch { /* partial line */ }
     }
   }
+  if (!finish) throw new Error("응답 중단(스트림이 끝까지 오지 않음) UNAVAILABLE");
+  if (!/^(STOP|MAX_TOKENS)$/.test(finish)) throw new Error(`응답 중단(${finish}) UNAVAILABLE`);
   } catch (e) {
     if (stall.signal.aborted) throw stall.signal.reason;
     throw e;
