@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { dateKey, isHeldOut, precedentQueries } from "../lib/precedent.ts";
 import type { QueryAnalysis } from "../lib/types.ts";
 
-const a = (legalTerms: string[]): QueryAnalysis => ({ standalone: "q", intent: "", legalTerms, laws: [], subQueries: [], facts: {}, missing: [], source: "rules" });
+const a = (legalTerms: string[]): QueryAnalysis => ({ standalone: "q", intent: "", legalTerms, laws: [], subQueries: [], facts: {}, missing: [], offTopic: false, source: "rules" });
 
 test("precedent queries: relation types from the structure analysis come first, generic terms are dropped", () => {
   const q = precedentQueries(a(["건축물", "용도변경", "구조 안전", "건축주"]), ["[준용] 건축법 제19조⑦ …", "[부칙·경과조치] …"]);
