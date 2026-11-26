@@ -323,7 +323,11 @@ export function formatAnalysis(c: Consolidated): string {
         ? i.judged.other
           ? "    → 판정이 엇갈림: 결론 첫 문장에 '해석이 갈릴 수 있는 쟁점'이라고 밝히고, 위 최종 결론을 더 유력한 해석으로, 다른 판정을 반대 해석으로 각각 근거와 함께 쓸 것"
           : "    → 판정 확신도 낮음: 결론 첫 문장에 '해석이 갈릴 수 있는 쟁점'이라고 밝히고 더 유력한 해석과 반대 해석을 함께 쓸 것"
-        : "    → 결론 첫 문장은 이 최종 결론과 같게 쓸 것",
+        // Split judges settled by the arbiter: the arbiter's reading is the answer. Hedging here left a decided
+        // issue reading as unresolved (run D, 17-0107), so the answer states it and gives the other side once.
+        : i.judged.other
+          ? "    → 엇갈린 판정을 조정 판정이 결론지었다: 결론 첫 문장을 이 최종 결론으로 단정해 쓰고 '해석이 갈릴 수 있는 쟁점'이라고 쓰지 말 것(엄격한 원칙 9의 그 표기는 이 쟁점에 적용하지 않는다). 반대 견해는 설명 끝에 '다른 견해' 한 문장으로만 쓸 것"
+          : "    → 결론 첫 문장은 이 최종 결론과 같게 쓸 것",
     ] : [
       i.agree
         ? `  결론: ${i.conclusion} — ${i.answer} [독립 분석 ${i.votes.length}개 일치]`

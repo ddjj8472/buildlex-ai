@@ -159,6 +159,9 @@ test("adjudication arbiter: a split between the text and system judges is decide
   assert.equal(c.issues[0].judged?.confidence, "보통");            // a split caps the arbiter's confidence
   assert.equal(c.issues[0].judged?.other?.conclusion, "아니오");    // the text judge's view is kept
   assert.match(formatAnalysis(c), /반대로 판정함\(견해 대립\): 아니오 — 문언답 \/ 이유: 문언 논거/);
+  // The arbiter settled it: the answer states the conclusion instead of hedging.
+  assert.match(formatAnalysis(c), /조정 판정이 결론지었다: 결론 첫 문장을 이 최종 결론으로 단정/);
+  assert.doesNotMatch(formatAnalysis(c), /→ 판정이 엇갈림/);
   const base = { query: "q", c, evidenceText: "e" };
   assert.match(judgePrompt({ ...base, role: "text" }), /문언 검토관/);
   assert.match(judgePrompt({ ...base, role: "system" }), /체계·목적 검토관/);
