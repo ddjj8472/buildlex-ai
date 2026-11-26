@@ -327,7 +327,10 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
       const prompt = answerPrompt({ query: input.query, analysis, region: effRegion?.label || "", evidence, interpretations, notes, warnings, history: input.history || [], missingLaws: absent, doctrine, reasoning: reasoning ? formatAnalysis(reasoning) : undefined, structure: structure(), contested });
       // Retry transient overload (429/503) with backoff, then fall back to other models,
       // and finally to an extractive answer so the retrieved evidence is never lost.
-      const models = [...new Set([MODEL, ...FALLBACK_MODELS])];
+      // When a larger model has ruled on a contested issue, it also writes the answer, so the verdict is not
+      // overridden by a smaller writer that sees "3 analyses agree" (observed in testing).
+      const judgeModel = reasoning?.issues.find(i => i.judged && i.judged.model !== MODEL)?.judged?.model;
+      const models = [...new Set([...(judgeModel ? [judgeModel] : []), MODEL, ...FALLBACK_MODELS])];
       let lastError = "";
       const stalled = new Set<string>();
       for (const [i, model] of models.flatMap(m => [m, m]).entries()) {
@@ -340,9 +343,11 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
           if (answer) { emit({ type: "reset" }); answer = ""; }
           // A stalled first attempt must not consume the whole 60 s function budget.
           const left = 52000 + shift - elapsed();
-          for await (const d of streamText(prompt, { model, signal: input.signal, timeoutMs: Math.max(10000, left), firstTokenMs: Math.min(15000, Math.max(6000, left - 20000)) })) { answer += d; emit({ type: "delta", text: d }); }
+          const isJudge = model === judgeModel;
+          for await (const d of streamText(prompt, { model, signal: input.signal, timeoutMs: Math.max(10000, left), firstTokenMs: isJudge ? Math.min(25000, Math.max(8000, left - 25000)) : Math.min(15000, Math.max(6000, left - 20000)), thinking: isJudge && /gemini-3/.test(model) ? "low" : undefined })) { answer += d; emit({ type: "delta", text: d }); }
           if (answer.trim()) {
-            if (model !== MODEL) emit({ type: "warning", message: `기본 모델이 혼잡해 ${model} 모델로 답변했습니다.` });
+            if (isJudge) emit({ type: "warning", message: `해석이 갈릴 수 있는 쟁점이라 ${model} 모델이 판정하고 답변을 작성했습니다.` });
+            else if (model !== MODEL) emit({ type: "warning", message: `기본 모델이 혼잡해 ${model} 모델로 답변했습니다.` });
             return answer;
           }
         } catch (e) {

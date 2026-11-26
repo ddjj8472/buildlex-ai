@@ -230,16 +230,18 @@ export function formatAnalysis(c: Consolidated): string {
     i.counter ? `  반론(반대 해석): ${i.counter}` : "",
     /반대해석/.test(i.basis || "") ? "  → 반대해석에 기댄 결론: 원문이 그 대상을 명시적으로 한정·배제하는지 다시 확인하고, 명시가 없으면 반론과 [법령 구조 분석]에 비추어 결론을 정할 것" : "",
     i.dropped.length ? `  ※ 근거 원문에서 찾지 못해 제외한 조건(결론·설명에 쓰지 말 것): ${i.dropped.join("; ")}` : "",
-    i.agree
-      ? `  분석 결론: ${i.conclusion} — ${i.answer} [독립 분석 ${i.votes.length}개 일치]`
-      : `  분석 결론(다수 ${i.votes.filter(v => v === i.conclusion).length}/${i.votes.length}): ${i.conclusion} — ${i.answer}`,
     ...(i.judged ? [
-      `  ▶ 판정(${i.judged.model}, 확신도 ${i.judged.confidence}): ${i.judged.conclusion} — ${i.judged.answer}`,
+      `  ▶ 최종 결론(판정 ${i.judged.model}, 확신도 ${i.judged.confidence}): ${i.judged.conclusion} — ${i.judged.answer}`,
       `    판정 이유: ${i.judged.reason}`,
+      i.judged.conclusion !== i.conclusion ? `  (하위 분석의 결론 "${i.conclusion} — ${i.answer}"은 판정에서 채택되지 않았다. 답변에 쓰지 말 것)` : "",
       i.judged.confidence === "낮음"
         ? "    → 판정 확신도 낮음: 결론 첫 문장에 '해석이 갈릴 수 있는 쟁점'이라고 밝히고 더 유력한 해석과 반대 해석을 함께 쓸 것"
-        : "    → 이 쟁점은 판정 결론을 결론 첫 문장으로 쓸 것(분석 결론보다 우선)",
-    ] : []),
+        : "    → 결론 첫 문장은 이 최종 결론과 같게 쓸 것",
+    ] : [
+      i.agree
+        ? `  결론: ${i.conclusion} — ${i.answer} [독립 분석 ${i.votes.length}개 일치]`
+        : `  결론(다수 ${i.votes.filter(v => v === i.conclusion).length}/${i.votes.length}): ${i.conclusion} — ${i.answer}`,
+    ]),
     ...(!i.agree && i.alt ? [
       `  반대 결론(${i.votes.filter(v => v === i.alt!.conclusion).length}/${i.votes.length}): ${i.alt.conclusion} — ${i.alt.answer}`,
       ...i.alt.rules.map(r => `    반대 측 대전제 [근거 ${r.n}]: "${r.quote}"`),

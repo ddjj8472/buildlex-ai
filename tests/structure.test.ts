@@ -81,7 +81,9 @@ test("adjudication: only contested issues go to the judge, and a verdict overrid
   assert.doesNotMatch(p, /\(가\) 쟁점/);
   assert.equal(applyJudgment(c, { issues: [{ label: "나", conclusion: "예", answer: "판정답", reason: "이유", confidence: "높음" }] }, "judge"), 1);
   const text = formatAnalysis(c);
-  assert.match(text, /▶ 판정\(judge, 확신도 높음\): 예 — 판정답/);
+  assert.match(text, /▶ 최종 결론\(판정 judge, 확신도 높음\): 예 — 판정답/);
+  assert.match(text, /채택되지 않았다/);
+  assert.doesNotMatch(text, /결론: 아니오 — 답나 \[독립 분석/);
   applyJudgment(c, { issues: [{ label: "나", conclusion: "예", answer: "x", reason: "y", confidence: "낮음" }] }, "judge");
   assert.match(formatAnalysis(c), /해석이 갈릴 수 있는 쟁점/);
 });

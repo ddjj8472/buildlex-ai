@@ -78,7 +78,7 @@ async function generateJSONOnce<T>(prompt: string, opts: JSONOpts = {}): Promise
  * @param opts.firstTokenMs abort when no text has arrived by then. A model that is queued
  *   or stalled otherwise holds the whole request budget and leaves no time for fallbacks.
  */
-export async function* streamText(prompt: string, opts: { model?: string; timeoutMs?: number; firstTokenMs?: number; maxTokens?: number; signal?: AbortSignal } = {}): AsyncGenerator<string> {
+export async function* streamText(prompt: string, opts: { model?: string; timeoutMs?: number; firstTokenMs?: number; maxTokens?: number; signal?: AbortSignal; /** thinkingLevel "low" (Gemini 3) so a larger model starts streaming sooner. */ thinking?: "low" } = {}): AsyncGenerator<string> {
   const stall = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined = opts.firstTokenMs
     ? setTimeout(() => stall.abort(new Error(`첫 응답 지연(${Math.round(opts.firstTokenMs! / 1000)}초) UNAVAILABLE`)), opts.firstTokenMs)
@@ -92,7 +92,7 @@ export async function* streamText(prompt: string, opts: { model?: string; timeou
     body: JSON.stringify({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       // Deterministic decoding: the same question should get the same legal conclusion.
-      generationConfig: { temperature: 0, maxOutputTokens: opts.maxTokens ?? 4000 },
+      generationConfig: { temperature: 0, maxOutputTokens: opts.maxTokens ?? 4000, ...(opts.thinking ? { thinkingConfig: { thinkingLevel: opts.thinking } } : {}) },
     }),
   });
   if (!res.ok || !res.body) {
