@@ -21,7 +21,7 @@ const LEAN = process.env.BUILDLEX_RAG_LEAN === "1";
 // Free-tier keys differ in which larger models they may call (in testing: gemini-flash-latest → 429 quota,
 // gemini-2.5-flash → 404 for new users), so several are tried and the main model is the labelled last resort:
 // the adjudication prompt itself (explicit a-contrario check against the structure analysis) still runs.
-const JUDGE_MODELS = [...new Set([...(process.env.GEMINI_JUDGE_MODELS || "gemini-3-flash-preview,gemini-flash-latest,gemini-pro-latest,gemini-3-pro-preview").split(",").map(s => s.trim()).filter(Boolean), MODEL])];
+const JUDGE_MODELS = [...new Set([...(process.env.GEMINI_JUDGE_MODELS || "gemini-3-flash-preview,gemini-flash-latest,gemini-pro-latest").split(",").map(s => s.trim()).filter(Boolean), MODEL])];
 /** Extra time a contested question may take for adjudication (route maxDuration is 120 s). */
 const JUDGE_BUDGET_MS = Number(process.env.BUILDLEX_JUDGE_BUDGET_MS || 30000);
 /** Independent judge calls per contested question (2 = vote; 1 = single judge, half the quota). */

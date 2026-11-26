@@ -112,17 +112,24 @@ export function pickAmendments(evidence: Evidence[], terms: string[], max = 2, a
 
 /** The parts of a 제·개정이유 that concern the article or the question's terms. */
 export function excerptReasons(paras: string[], articleNo: string, terms: string[], max = 700): string {
-  const num = articleNo.replace(/\s+/g, "");
-  const hits = paras.filter(p => p.replace(/\s+/g, "").includes(num) || terms.some(t => t.length >= 2 && p.includes(t)));
-  const head = paras.find(p => /개정이유|제정이유/.test(p)) ? paras.slice(0, 2) : paras.slice(0, 1);
-  const text = [...new Set([...head, ...hits])].join(" ").replace(/\s+/g, " ").trim();
+  // Segment at item level: 제·개정이유 list their 주요내용 as "가. … 나. …" / "1) … 2) …", often in one paragraph.
+  const segs = paras.flatMap(p => p.split(/\s(?=[가-하]\.\s|\d+\)\s)/)).map(x => x.replace(/\s+/g, " ").trim()).filter(Boolean);
+  const n = articleNo.replace(/\s+/g, "").match(/^제(\d+)조(?:의(\d+))?/);
+  // "제32조" must not match "제32조의2", and "제3조" not "제32조".
+  const named = n ? new RegExp(`제${n[1]}조${n[2] ? `의${n[2]}` : "(?!의)"}`) : null;
+  const purpose = segs.find(x => /개정이유|제정이유/.test(x)) ?? segs[0] ?? "";
+  const head = purpose.replace(/^.*?(개정이유|제정이유)\s*/, "").split(/(?<=임\.|함\.|것임\.)\s/)[0].slice(0, 200);
+  const byNum = named ? segs.filter(x => named.test(x.replace(/\s+/g, ""))) : [];
+  const picked = byNum.length ? byNum : segs.filter(x => x !== purpose).map(x => ({ x, s: termScore(x, terms) })).filter(v => v.s > 0).sort((a, b) => b.s - a.s).slice(0, 2).map(v => v.x);
+  const text = [...new Set([head, ...picked])].filter(Boolean).join(" … ").trim();
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
 /** [입법 취지] lines for the prompt (empty without the API key or a matching version). */
 export async function legislativePurpose(evidence: Evidence[], terms: string[], asOf?: string): Promise<string[]> {
   if (!lawApiEnabled() && !loadReasons()) return [];
-  const picks = pickAmendments(evidence, terms, 2, asOf);
+  // Two provisions changed by the same amendment share one reason: say it once.
+  const picks = pickAmendments(evidence, terms, 2, asOf).filter((p, i, all) => all.findIndex(q => q.mst === p.mst) === i);
   const lines = await Promise.all(picks.map(async p => {
     const paras = p.reason ? p.reason.split("\n") : lawApiEnabled() ? await fetchLawReasons(p.mst).catch(() => [] as string[]) : [];
     const text = excerptReasons(paras, p.chunk.articleNo, terms);
