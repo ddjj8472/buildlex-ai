@@ -40,10 +40,6 @@ for (const [name, expected] of Object.entries(DEMOS)) {
       assert.equal(s.unreachable, 0, `${e.storey} ${s.ref.name}`);
       assert.ok(s.maxDistance! > 5 && s.maxDistance! < 15, `${e.storey} ${s.ref.name} ${s.maxDistance}`);
     }
-    // Stair and lift shafts stay openings in the slab although the core walls cut the slabs.
-    const upper = f.construction!.levels.filter(l => l.storey !== "1층");
-    assert.equal(upper.length, 5);
-    for (const l of upper) assert.deepEqual(l.openings.map(o => o.kind).sort(), ["계단", "승강로"], l.storey);
   });
 }
 

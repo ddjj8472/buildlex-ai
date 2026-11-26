@@ -5,7 +5,6 @@
 //   • storey isolation, plan section, X-ray, rooms, element picking
 //   • issue focus: ghost the model, show the offending elements solid red, fly to them
 //   • overlays: walking-distance heat-map per storey, 정북 일조 사선 envelope, site boundary,
-//     시공 단계 추락 방호 위치 (slab-edge guardrails and opening covers measured from the slabs)
 import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import * as THREE from "three";
 import { Line2 } from "three/addons/lines/Line2.js";
@@ -25,7 +24,6 @@ export type ViewerHandle = {
 };
 export type Envelope = { low: number; ratio: number; threshold: number };
 /** Fall-protection overlay: slab-edge segments [x0,y0,x1,y1,…] and opening rectangles [x,y ×4] per level. */
-export type GuardOverlay = { edges: { z: number; segs: number[] }[]; openings: { z: number; corners: number[]; kind: string }[] };
 export type ViewerProps = {
   ref?: Ref<ViewerHandle>;
   model: WorkerModel | null;
@@ -38,7 +36,6 @@ export type ViewerProps = {
   heat: EgressField | null;
   heatLimit: number;
   envelope: Envelope | null;
-  guards?: GuardOverlay | null;
   onPick?: (el: ViewerElement | null) => void;
 };
 
@@ -111,7 +108,7 @@ function label(text: string, color = "#1f5f8b"): THREE.Sprite {
   return s;
 }
 
-export default function Viewer3D({ ref, model, spaceUse, storey, highlight, xray, showSpaces, section, heat, heatLimit, envelope, guards, onPick }: ViewerProps) {
+export default function Viewer3D({ ref, model, spaceUse, storey, highlight, xray, showSpaces, section, heat, heatLimit, envelope, onPick }: ViewerProps) {
   const host = useRef<HTMLDivElement>(null);
   const S = useRef<Scene3 | null>(null);
   const pickRef = useRef(onPick);
@@ -363,9 +360,8 @@ export default function Viewer3D({ ref, model, spaceUse, storey, highlight, xray
       }
     }
     if (model && envelope && model.boundary?.length) s.overlay.add(envelopeMesh(model.boundary, model.north, model.groundZ, Math.max(model.height + 4, envelope.threshold + 4), envelope));
-    if (model && guards) s.overlay.add(guardMesh(guards, host.current!));
     render();
-  }, [model, heat, heatLimit, envelope, highlight, guards]);
+  }, [model, heat, heatLimit, envelope, highlight]);
 
   useImperativeHandle(ref, () => ({
     fit(ids?: number[]) {
@@ -507,35 +503,3 @@ function disposeTree(o: THREE.Object3D) {
   });
 }
 
-// 안전난간 at the slab edge (중간대 0.45 m, 상부 0.9 m — 산업안전보건기준에 관한 규칙 제13조) and
-// opening covers, drawn as screen-space lines so they stay readable at any zoom.
-function guardMesh(g: GuardOverlay, el: HTMLElement) {
-  const group = new THREE.Group();
-  const res = new THREE.Vector2(el.clientWidth || 1, el.clientHeight || 1);
-  const rail: number[] = [];
-  for (const lv of g.edges) for (let k = 0; k + 3 < lv.segs.length; k += 4) {
-    const [x0, y0, x1, y1] = lv.segs.slice(k, k + 4);
-    for (const h of [0.45, 0.9]) rail.push(x0, y0, lv.z + h, x1, y1, lv.z + h);
-  }
-  if (rail.length) {
-    const geo = new LineSegmentsGeometry(); geo.setPositions(rail);
-    const mat = new LineMaterial({ color: 0xf28c28, linewidth: 2.5, worldUnits: false, transparent: true, opacity: 0.95 });
-    mat.resolution.copy(res);
-    const line = new LineSegments2(geo, mat); line.renderOrder = 9; group.add(line);
-  }
-  const outline: number[] = [];
-  for (const o of g.openings) {
-    const c = o.corners, z = o.z + 0.05;
-    for (let k = 0; k < 4; k++) { const a = k * 2, b = ((k + 1) % 4) * 2; outline.push(c[a], c[a + 1], z, c[b], c[b + 1], z); }
-    const shape = new THREE.Shape([0, 1, 2, 3].map(k => new THREE.Vector2(c[k * 2], c[k * 2 + 1])));
-    const fill = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color: o.kind === "승강로" ? 0xd93025 : 0xf28c28, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide }));
-    fill.position.z = z; fill.renderOrder = 8; group.add(fill);
-  }
-  if (outline.length) {
-    const geo = new LineSegmentsGeometry(); geo.setPositions(outline);
-    const mat = new LineMaterial({ color: 0xd93025, linewidth: 3, worldUnits: false });
-    mat.resolution.copy(res);
-    const line = new LineSegments2(geo, mat); line.renderOrder = 10; group.add(line);
-  }
-  return group;
-}
