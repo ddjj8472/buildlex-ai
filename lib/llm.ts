@@ -1,11 +1,21 @@
 // Minimal Gemini client: JSON generation and SSE text streaming.
 // MOCK_LLM=1 switches to deterministic fakes for local UI testing.
+import { AsyncLocalStorage } from "node:async_hooks";
 
 export const MODEL = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
 /** Lighter model for structured calls (analysis, rerank, evaluation). */
 export const FAST_MODEL = process.env.GEMINI_FAST_MODEL || "gemini-flash-lite-latest";
 /** Tried in order when the main model is overloaded (comma-separated env). */
 export const FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS || "gemini-flash-latest,gemini-flash-lite-latest").split(",").map(s => s.trim()).filter(Boolean);
+/** Larger models for evaluation runs that must not fall back to lite ones (comma-separated env). */
+export const STRONG_MODELS = (process.env.GEMINI_STRONG_MODELS || "gemini-3-flash-preview,gemini-flash-latest,gemini-pro-latest").split(",").map(s => s.trim()).filter(Boolean);
+const isLite = (m: string) => /lite/i.test(m);
+// Evaluation policy for one request: strong = every call goes to STRONG_MODELS, never a lite model.
+const policy = new AsyncLocalStorage<{ strong: boolean }>();
+export const strongOnly = () => policy.getStore()?.strong === true;
+export const withStrongModels = <T,>(on: boolean, fn: () => Promise<T>) => (on ? policy.run({ strong: true }, fn) : fn());
+/** The model to call for `m` under the current policy (a lite model maps to the first strong one). */
+export const policyModel = (m: string) => (strongOnly() && isLite(m) ? STRONG_MODELS[0] : m);
 const API = (process.env.GEMINI_API_BASE || "https://generativelanguage.googleapis.com/v1beta") + "/models";
 
 export const isMock = () => process.env.MOCK_LLM === "1";
@@ -25,7 +35,9 @@ export async function generateJSON<T>(prompt: string, opts: JSONOpts = {}): Prom
   // Try the requested (fast) model, then the main model, then aliases — but only for
   // quick failures (overload, missing model, empty/invalid JSON). A timeout is final:
   // retrying it would blow the request's time budget.
-  const models = opts.only ? [opts.model || FAST_MODEL] : [...new Set([opts.model || FAST_MODEL, MODEL, ...FALLBACK_MODELS])].slice(0, 3);
+  const models = strongOnly()
+    ? (opts.only ? [policyModel(opts.model || FAST_MODEL)] : [...new Set([policyModel(opts.model || FAST_MODEL), ...STRONG_MODELS])].slice(0, 3))
+    : opts.only ? [opts.model || FAST_MODEL] : [...new Set([opts.model || FAST_MODEL, MODEL, ...FALLBACK_MODELS])].slice(0, 3);
   const deadline = Date.now() + (opts.timeoutMs ?? 12000);
   let last: unknown;
   for (const model of models) {
@@ -85,6 +97,7 @@ export async function* streamText(prompt: string, opts: { model?: string; timeou
     : undefined;
   const clear = () => { if (timer) { clearTimeout(timer); timer = undefined; } };
   try {
+  if (strongOnly() && isLite(opts.model || MODEL)) throw new Error("평가 모드: lite 모델 사용 안 함");
   const res = await fetch(`${API}/${encodeURIComponent(opts.model || MODEL)}:streamGenerateContent?alt=sse`, {
     method: "POST",
     headers: headers(),

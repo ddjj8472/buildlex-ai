@@ -1,6 +1,6 @@
 // Preview-only evaluation runner: GET ?i=<index in tests/minwon.json>. Runs the pipeline exactly as /api/ask
 // with the test case held out — 법리 노트 off, the case's own 해석례 blocked by 안건명 and 안건번호, only
-// 해석례 and amendments dated before the case (asOf) — and returns the answer next to the 법제처 answer.
+// 해석례 and amendments dated before the case (asOf), larger models only (no lite fallback; ?lite=1 allows it) — and returns the answer next to the 법제처 answer.
 // Disabled on production.
 import fs from "node:fs";
 import path from "node:path";
@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
       structure = ((x.notes as { title: string; text: string }[]) || []).filter(n => /구조 분석/.test(n.title)).map(n => n.text).join("\n");
     }
   };
-  await runPipeline({ query: c.question.slice(0, 1500), evalMode: "none", holdout: [c.title], holdoutNos: [c.no], noDoctrine: true, asOf: iso(c.date), signal: req.signal }, emit)
+  await runPipeline({ query: c.question.slice(0, 1500), evalMode: "none", holdout: [c.title], holdoutNos: [c.no], noDoctrine: true, asOf: iso(c.date), strongOnly: req.nextUrl.searchParams.get("lite") !== "1", signal: req.signal }, emit)
     .catch(e => { error = e instanceof Error ? e.message : String(e); });
   return Response.json({ i: Number(req.nextUrl.searchParams.get("i")), no: c.no, ms: Date.now() - t, stages, precedents, structure, warnings, error, answer, gold: c.answer });
 }

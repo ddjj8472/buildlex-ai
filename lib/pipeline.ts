@@ -4,7 +4,7 @@ import path from "node:path";
 import { ruleAnalysis } from "./analyze-rules.ts";
 import { findChunk, loadNational, resolveRegion } from "./corpus.ts";
 import { fetchAppendix, lawApiEnabled, searchInterpretations } from "./law-api.ts";
-import { FALLBACK_MODELS, FAST_MODEL, MODEL, generateJSON, hasLLM, isMock, streamText } from "./llm.ts";
+import { FALLBACK_MODELS, FAST_MODEL, MODEL, STRONG_MODELS, generateJSON, hasLLM, isMock, streamText, strongOnly, withStrongModels } from "./llm.ts";
 import { parseCitations, missingLaws } from "./cite.ts";
 import { formatDoctrines, matchDoctrines } from "./doctrine.ts";
 import { consolidate, contestedIssues, formatAnalysis, ground, isContested, judgePrompt, mergeJudgments, parseJudgment, needsReasoning, parseAnalysis, reasonPrompt, type Consolidated } from "./reason.ts";
@@ -52,10 +52,12 @@ async function adjudicate(query: string, c: Consolidated, evidence: Evidence[], 
   const errors: string[] = [];
   const deadline = Date.now() + JUDGE_BUDGET_MS;
   const ctx = { query, structure };
-  const laneA = JUDGE_MODELS;
+  // Evaluation with strong models only: no lite model judges.
+  const pool = strongOnly() ? JUDGE_MODELS.filter(m => !/lite/i.test(m)) : JUDGE_MODELS;
+  const laneA = pool;
   // Lane B: another strong model, else a second sample of the first — never the answer model, whose
   // sub-analysis is what is being checked.
-  const laneB = JUDGE_REPEAT > 1 ? [...JUDGE_MODELS.filter(m => m !== MODEL).slice(1), JUDGE_MODELS[0]] : [];
+  const laneB = JUDGE_REPEAT > 1 ? [...pool.filter(m => m !== MODEL).slice(1), pool[0]] : [];
   const [a, b] = await Promise.all([
     judgeLane(prompt, laneA, deadline, c, ctx, signal, errors),
     laneB.length ? judgeLane(prompt, laneB, deadline, c, ctx, signal, errors) : Promise.resolve(null),
@@ -85,6 +87,8 @@ export type AskInput = {
   asOf?: string;
   /** Evaluation only: 안건번호 of held-out 해석례 (blocked in the precedent index). */
   holdoutNos?: string[];
+  /** Evaluation only: every model call goes to the larger models (no lite fallback; a failure stays a failure). */
+  strongOnly?: boolean;
   signal?: AbortSignal;
 };
 
@@ -130,7 +134,7 @@ const REASON_VOTERS = (process.env.GEMINI_REASON_MODELS || `${MODEL},${FAST_MODE
 
 async function runReasoning(query: string, evidence: Evidence[], interpretations: Interpretation[], doctrine: string, structure: string, signal: AbortSignal | undefined, elapsed: () => number): Promise<{ c: Consolidated | null; errors: string[] }> {
   const prompt = reasonPrompt({ query, evidenceText: formatEvidence(evidence, 24000, query), interpretations, doctrine, structure });
-  const budget = Math.min(22000, 40000 - elapsed());
+  const budget = Math.min(strongOnly() ? 35000 : 22000, (strongOnly() ? 55000 : 40000) - elapsed());
   const errors: string[] = [];
   if (budget < 6000) return { c: null, errors: ["시간 부족"] };
   const run = (model: string, temperature: number, timeoutMs: number) => generateJSON<unknown>(prompt, { model, temperature, timeoutMs, signal, maxTokens: 8192, thinking: "low" })
@@ -144,8 +148,10 @@ async function runReasoning(query: string, evidence: Evidence[], interpretations
       return { model, a };
     })
     .catch(e => { errors.push(`${model}: ${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`); throw e; });
-  // Self-consistency: independent analyses in parallel, majority vote per issue.
-  const settled = await Promise.allSettled(REASON_VOTERS.slice(0, 3).map(v => run(v.model, v.temperature, budget)));
+  // Self-consistency: independent analyses in parallel, majority vote per issue. Evaluation with strong
+  // models only: two samples of the first strong model (temperature 0 and 0.7), to keep within quota.
+  const voters = strongOnly() ? [{ model: STRONG_MODELS[0], temperature: 0 }, { model: STRONG_MODELS[0], temperature: 0.7 }] : REASON_VOTERS.slice(0, 3);
+  const settled = await Promise.allSettled(voters.map(v => run(v.model, v.temperature, budget)));
   const runs = settled.flatMap(r => (r.status === "fulfilled" ? [r.value] : []));
   return { c: consolidate(runs), errors };
 }
@@ -242,7 +248,11 @@ function* mockAnswer(evidence: Evidence[], analysis: QueryAnalysis): Generator<s
   for (const piece of text.match(/[\s\S]{1,24}/g) || []) yield piece;
 }
 
-export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
+export function runPipeline(input: AskInput, emit: Emit): Promise<void> {
+  return withStrongModels(!!input.strongOnly, () => runPipelineInner(input, emit));
+}
+
+async function runPipelineInner(input: AskInput, emit: Emit): Promise<void> {
   const startedAt = Date.now();
   const elapsed = () => Date.now() - startedAt;
   const evalMode = input.evalMode || "none";
@@ -320,7 +330,8 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
   applyStructure();
   const structure = () => structureLines.join("\n");
   // Time spent on precedent search and adjudication; later stage deadlines move by this much (maxDuration 120 s).
-  let shift = 0;
+  // Larger models are slower: evaluation runs on them get 25 s more at each later deadline (maxDuration 120 s).
+  let shift = input.strongOnly ? 25000 : 0;
   // 입법 취지: the 제·개정이유 of the amendment behind the provisions the question turns on (lib/legislative.ts),
   // fetched alongside the precedent search and appended to the structure block.
   const t0 = Date.now();
@@ -377,7 +388,9 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
       // When a larger model has ruled on a contested issue, it also writes the answer, so the verdict is not
       // overridden by a smaller writer that sees "3 analyses agree" (observed in testing).
       const judgeModel = reasoning?.issues.find(i => i.judged && i.judged.model !== MODEL)?.judged?.model;
-      const models = [...new Set([...(judgeModel ? [judgeModel] : []), MODEL, ...FALLBACK_MODELS])];
+      const models = strongOnly()
+        ? [...new Set([...(judgeModel ? [judgeModel] : []), ...STRONG_MODELS])]
+        : [...new Set([...(judgeModel ? [judgeModel] : []), MODEL, ...FALLBACK_MODELS])];
       let lastError = "";
       const stalled = new Set<string>();
       for (const [i, model] of models.flatMap(m => [m, m]).entries()) {
@@ -394,6 +407,7 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
           for await (const d of streamText(prompt, { model, signal: input.signal, timeoutMs: Math.max(10000, left), firstTokenMs: isJudge ? Math.min(25000, Math.max(8000, left - 25000)) : Math.min(15000, Math.max(6000, left - 20000)), thinking: isJudge && /gemini-3/.test(model) ? "low" : undefined })) { answer += d; emit({ type: "delta", text: d }); }
           if (answer.trim()) {
             if (isJudge) emit({ type: "warning", message: `해석이 갈릴 수 있는 쟁점이라 ${model} 모델이 판정하고 답변을 작성했습니다.` });
+            else if (strongOnly()) emit({ type: "warning", message: `평가 모드: ${model} 모델로 답변했습니다.` });
             else if (model !== MODEL) emit({ type: "warning", message: `기본 모델이 혼잡해 ${model} 모델로 답변했습니다.` });
             return answer;
           }
