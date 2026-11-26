@@ -41,7 +41,7 @@ export type ReasonIssue = {
 };
 export type LegalAnalysis = { issues: ReasonIssue[] };
 /** `alt` = best-grounded analysis reaching a different conclusion, kept when the votes split so the answer step can adjudicate. */
-export type Judgment = { label: string; conclusion: Verdict; answer: string; reason: string; confidence: "높음" | "보통" | "낮음"; model: string;
+export type Judgment = { label: string; conclusion: Verdict; answer: string; reason: string; confidence: "높음" | "보통" | "낮음"; model: string; argument?: string;
   /** A second, independent judgment: agreed (votes 2) or split (the other side, reported as 견해 대립). */
   votes?: number; other?: { conclusion: Verdict; answer: string; reason: string; model: string } };
 export type Consolidated = { issues: (ReasonIssue & { votes: Verdict[]; agree: boolean; dropped: string[]; alt?: ReasonIssue; judged?: Judgment })[]; runs: number; models: string[] };
@@ -167,7 +167,19 @@ const MET_KO: Record<Met, string> = { yes: "충족", no: "불충족", unknown: "
 // ───────────────────────────── adjudication ─────────────────────────────
 
 /** A stronger model weighs the conclusion against the counter-reading for the contested issues only. */
-export function judgePrompt(p: { query: string; c: Consolidated; structure?: string; evidenceText: string; doctrine?: string; interpretations?: Interpretation[] }): string {
+/**
+ * Judge roles. Two judges with the same prompt fail together (LLM errors are strongly correlated across models,
+ * Kim et al., ICML 2025), so each argues from a different interpretive method before deciding: one from the
+ * text, one from system, purpose and consequences. Where they split, an arbiter applies the Supreme Court's
+ * order of method (문언 → 그 범위 안에서 체계·목적).
+ */
+export type JudgeRole = "text" | "system";
+const ROLE_BRIEF: Record<JudgeRole, string> = {
+  text: `[너의 역할 — 문언 검토관] 먼저 결론을 좌우하는 문언의 통상적 의미와, 문언이 대상을 명시적으로 열거·한정·배제하는지를 중심으로 가장 강한 논거를 세운다(argument). 그다음 체계·목적 쪽 반론도 따져 본 뒤 최종 판정을 내린다.`,
+  system: `[너의 역할 — 체계·목적 검토관] 먼저 같은 법의 다른 규정과의 관계(체계), 그 규정을 둔 목적과 [입법 취지], 각 해석을 따랐을 때의 결과(해석 원칙 파), 절차·처분의 법적 성질(해석 원칙 하)을 중심으로 가장 강한 논거를 세운다(argument). 그다음 문언 쪽 반론도 따져 본 뒤, 문언의 통상적 의미를 벗어나지 않는 범위에서 최종 판정을 내린다.`,
+};
+
+export function judgePrompt(p: { query: string; c: Consolidated; structure?: string; evidenceText: string; doctrine?: string; interpretations?: Interpretation[]; role?: JudgeRole }): string {
   const issues = contestedIssues(p.c, { query: p.query, structure: p.structure }).map(i => [
     `(${i.label}) 쟁점: ${i.issue}`,
     `  분석 결론(${i.votes.filter(v => v === i.conclusion).length}/${i.votes.length}): ${i.conclusion} — ${i.answer}`,
@@ -176,7 +188,7 @@ export function judgePrompt(p: { query: string; c: Consolidated; structure?: str
     i.counter ? `  반론: ${i.counter}` : "",
     i.alt ? `  반대 결론(${i.votes.filter(v => v === i.alt!.conclusion).length}/${i.votes.length}): ${i.alt.conclusion} — ${i.alt.answer}` : "",
   ].filter(Boolean).join("\n")).join("\n\n");
-  return `너는 대한민국 법제처의 선임 법제관이다. 아래 쟁점은 하위 분석의 결론을 그대로 믿기 어려운 것이다(결론이 엇갈렸거나, 반대해석에 기대거나, 준용·적용 제외·부칙처럼 조문 사이의 관계로 결론이 정해지는 쟁점). 하위 분석의 결론에 끌려가지 말고 [검색 근거] 원문과 [법령 구조 분석]만으로 결론을 다시 판정해 JSON으로만 답한다. [입법 취지]는 그 조문을 만들거나 바꾼 개정의 공식 제·개정이유다. 문언이 두 가지로 읽힐 때 어느 쪽이 그 개정의 목적에 맞는지 정하는 근거로 쓰고, 명확한 문언을 뒤집는 데 쓰지 않는다.
+  return `너는 대한민국 법제처의 선임 법제관이다. 아래 쟁점은 하위 분석의 결론을 그대로 믿기 어려운 것이다(결론이 엇갈렸거나, 반대해석에 기대거나, 준용·적용 제외·부칙처럼 조문 사이의 관계로 결론이 정해지는 쟁점). 하위 분석의 결론에 끌려가지 말고 [검색 근거] 원문과 [법령 구조 분석]만으로 결론을 다시 판정해 JSON으로만 답한다.${p.role ? `\n${ROLE_BRIEF[p.role]}\n` : ""} [입법 취지]는 그 조문을 만들거나 바꾼 개정의 공식 제·개정이유다. 문언이 두 가지로 읽힐 때 어느 쪽이 그 개정의 목적에 맞는지 정하는 근거로 쓰고, 명확한 문언을 뒤집는 데 쓰지 않는다.
 
 [판정 방법]
 1. 결론을 좌우하는 문언이 대상을 명시적으로 한정·배제하는지 확인한다. 명시적이면 그 문언대로 판정한다.
@@ -188,7 +200,7 @@ export function judgePrompt(p: { query: string; c: Consolidated; structure?: str
 ${INTERPRETATION_CANONS}
 ${p.doctrine ? `\n[법리 노트 — 여러 법령에 공통인 해석 원리]\n${p.doctrine}\n` : ""}
 [출력 JSON 형식]
-{"issues":[{"label":"가","conclusion":"예|아니오|조건부|판단불가","answer":"질문에 대한 한 문장 답","reason":"판정 이유 2~3문장(결론을 좌우한 문언과 근거 번호 포함)","confidence":"높음|보통|낮음"}]}
+{"issues":[{"label":"가",${p.role ? `"argument":"네 역할 관점의 가장 강한 논거 2~3문장",` : ""}"conclusion":"예|아니오|조건부|판단불가","answer":"질문에 대한 한 문장 답","reason":"판정 이유 2~3문장(결론을 좌우한 문언과 근거 번호 포함)","confidence":"높음|보통|낮음"}]}
 
 [질문]
 ${p.query}
@@ -201,6 +213,39 @@ ${p.evidenceText}
 ${p.interpretations?.length ? `
 [유사 법제처 해석례 — 다른 사안이다. 쟁점이 같은 원리(준용의 의미, 경과조치의 범위, 행정주체의 지위 등)를 다루면 그 논리를 참고하되, 결론은 이 사안의 원문으로 판정한다. 해석례 이후 법령이 개정됐을 수 있으니 원문과 다르면 원문을 따른다]
 ${p.interpretations.map((x, i) => `(해석례${i + 1}) ${x.title} (${x.date})\n회답: ${x.answer.slice(0, 400)}${x.reason ? `\n이유(발췌): ${x.reason.slice(0, 900)}` : ""}`).join("\n\n")}` : ""}`;
+}
+
+/** Arbiter for issues on which the text judge and the system/purpose judge disagree. */
+export function arbiterPrompt(p: { query: string; c: Consolidated; split: { label: string; text: Judgment; system: Judgment }[]; structure?: string; evidenceText: string; interpretations?: Interpretation[] }): string {
+  const issues = p.split.map(x => {
+    const i = p.c.issues.find(y => y.label === x.label);
+    return [`(${x.label}) 쟁점: ${i?.issue ?? ""}`,
+      `  문언 검토관: ${x.text.conclusion} — ${x.text.answer}\n    논거: ${x.text.argument || x.text.reason}`,
+      `  체계·목적 검토관: ${x.system.conclusion} — ${x.system.answer}\n    논거: ${x.system.argument || x.system.reason}`].join("\n");
+  }).join("\n\n");
+  return `너는 대한민국 법제처 법령해석심의위원회의 위원장이다. 아래 쟁점에서 문언 검토관과 체계·목적 검토관의 결론이 갈렸다. 두 의견과 [검색 근거] 원문을 비교해 최종 결론을 JSON으로만 답한다.
+
+[판단 순서 — 대법원 2006다81035의 법해석 방법]
+1. 결론을 좌우하는 문언의 통상적 의미가 하나로 명확한지 본다. 문언이 대상을 명시적으로 열거·한정·배제해 다른 읽기의 여지가 없으면 그 문언대로 정한다.
+2. 문언의 통상적 의미 안에서 두 읽기가 모두 가능하면, 입법 취지와 목적, 제·개정 연혁, 같은 법의 다른 규정 및 다른 법령과의 관계, 그리고 각 해석을 따랐을 때의 결과(목적이 달성되는지, 다른 규정이 의미를 잃는지, 우연한 사정에 따라 결과가 달라지는지)로 정한다.
+3. 어느 의견이 문언의 통상적 의미를 벗어났는지 확인하고, 벗어난 의견은 택하지 않는다.
+4. 두 의견이 모두 원문에 근거가 있어 우열이 분명하지 않으면 confidence를 "낮음"으로 둔다.
+
+[해석 원칙]
+${INTERPRETATION_CANONS}
+
+[출력 JSON 형식]
+{"issues":[{"label":"가","conclusion":"예|아니오|조건부|판단불가","answer":"질문에 대한 한 문장 답","reason":"어느 의견을 왜 택했는지 2~3문장(결론을 좌우한 문언과 근거 번호 포함)","confidence":"높음|보통|낮음"}]}
+
+[질문]
+${p.query}
+
+[갈린 쟁점]
+${issues}
+${p.structure ? `\n[법령 구조 분석 — 프로그램이 원문에서 계산한 관계]\n${p.structure}\n` : ""}
+[검색 근거]
+${p.evidenceText}
+${p.interpretations?.length ? `\n[유사 법제처 해석례 — 다른 사안이다. 같은 원리를 다루면 그 논리를 참고한다]\n${p.interpretations.map((x, i) => `(해석례${i + 1}) ${x.title} (${x.date})\n회답: ${x.answer.slice(0, 300)}${x.reason ? `\n이유(발췌): ${x.reason.slice(0, 600)}` : ""}`).join("\n\n")}` : ""}`;
 }
 
 /** Applies the adjudicator's verdicts; returns how many issues changed conclusion. */
@@ -217,7 +262,7 @@ export function parseJudgment(c: Consolidated, raw: unknown, model: string, ctx:
     const conclusion = (VERDICTS.find(v => cs.startsWith(v)) ?? "판단불가") as Verdict;
     const conf = str(x.confidence, 4);
     const confidence = (conf.startsWith("높") ? "높음" : conf.startsWith("낮") ? "낮음" : "보통") as Judgment["confidence"];
-    out.set(issue.label, { label: issue.label, conclusion, answer: str(x.answer, 400), reason: str(x.reason, 600), confidence, model });
+    out.set(issue.label, { label: issue.label, conclusion, answer: str(x.answer, 400), reason: str(x.reason, 600), confidence, model, ...(x.argument ? { argument: str(x.argument, 600) } : {}) });
   }
   return out;
 }
@@ -227,7 +272,7 @@ export function parseJudgment(c: Consolidated, raw: unknown, model: string, ctx:
  * higher confidence of the two, since agreement is evidence); two that differ → the first is kept as the more
  * likely reading but marked 낮음 with the other side attached, so the answer presents it as 견해 대립.
  */
-export function mergeJudgments(c: Consolidated, a: Map<string, Judgment>, b: Map<string, Judgment> | null): { changed: number; split: number } {
+export function mergeJudgments(c: Consolidated, a: Map<string, Judgment>, b: Map<string, Judgment> | null, arbiter?: Map<string, Judgment> | null): { changed: number; split: number } {
   let changed = 0, split = 0;
   const rank = { 낮음: 0, 보통: 1, 높음: 2 } as const;
   for (const issue of c.issues) {
@@ -235,7 +280,15 @@ export function mergeJudgments(c: Consolidated, a: Map<string, Judgment>, b: Map
     if (!x) continue;
     const y = a.get(issue.label) ? b?.get(issue.label) : undefined;
     let j: Judgment = { ...x };
+    const arb = arbiter?.get(issue.label);
     if (y && y.conclusion === x.conclusion) j = { ...x, votes: 2, confidence: rank[y.confidence] > rank[x.confidence] ? y.confidence : x.confidence };
+    else if (y && arb) {
+      // The arbiter decides; the judge it did not follow is kept as the opposing view. A split is evidence
+      // that the question is open, so the arbiter's 높음 becomes 보통.
+      const lost = arb.conclusion === x.conclusion ? y : x;
+      j = { ...arb, votes: 1, confidence: arb.confidence === "높음" ? "보통" : arb.confidence, other: { conclusion: lost.conclusion, answer: lost.answer, reason: lost.argument || lost.reason, model: lost.model } };
+      split++;
+    }
     else if (y) { j = { ...x, votes: 1, confidence: "낮음", other: { conclusion: y.conclusion, answer: y.answer, reason: y.reason, model: y.model } }; split++; }
     issue.judged = j;
     if (j.conclusion !== issue.conclusion) changed++;
@@ -296,11 +349,13 @@ export function formatAnalysis(c: Consolidated): string {
  *  - a scope question ("포함되는지", "적용되는지", "한정되는지" …) answered "아니오": the shape of an a-contrario answer.
  */
 export type ContestContext = { query?: string; structure?: string };
-const SCOPE_Q = /(포함되|해당하|해당되|적용되|적용받|준용하|준용되|한정되|제출하여야\s*하|해야\s*하|하여야\s*하)는지/;
+const SCOPE_Q = /(포함되|해당하|해당되|적용되|적용받|준용하|준용되|한정되|제출하여야\s*하|해야\s*하|하여야\s*하|할\s*수\s*있|받을\s*수\s*있)는지/;
 export function contestedIssues(c: Consolidated, ctx: ContestContext = {}) {
   const structural = /\[(준용|적용 제외|부칙)/.test(ctx.structure || "");
   const scope = SCOPE_Q.test(ctx.query || "");
-  return c.issues.filter(i => !i.agree || /반대해석/.test(i.basis || "") || structural || (scope && i.conclusion === "아니오"));
+  // A scope or permission question is where reading the text literally most often fails (both a literal 아니오
+  // and a literal 예): it always goes to the judges.
+  return c.issues.filter(i => !i.agree || /반대해석/.test(i.basis || "") || structural || scope);
 }
 export function isContested(c: Consolidated | null, ctx: ContestContext = {}): boolean {
   return !!c && contestedIssues(c, ctx).length > 0;

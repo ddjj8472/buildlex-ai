@@ -233,7 +233,7 @@ export function analyzeStructure(evidence: Evidence[], query: string): Structure
         const sameLaw = evidence.filter(d => d.chunk.lawKey === e.chunk.lawKey && d.chunk.id !== e.chunk.id && articleKey(d.chunk.id));
         const inList = [...new Set(sameLaw.filter(d => x.targets.includes(d.chunk.id)).map(d => d.chunk.articleNo))];
         const outList = [...new Set(sameLaw.filter(d => !x.targets.includes(d.chunk.id) && named(d.chunk)).map(d => d.chunk.articleNo))];
-        lines.push(`[적용 제외] ${label(e.chunk, x.para)}: "${x.condition}"에는 ${x.targets.map(short).join(", ")}를 적용하지 않는다.${inList.length ? ` 근거 중 이 목록에 든 조문: ${inList.join(", ")}.` : ""}${outList.length ? ` 질문이 묻는 조문 중 이 목록에 없는 조문: ${outList.join(", ")}.` : ""}`);
+        lines.push(`[적용 제외] ${label(e.chunk, x.para)}: "${x.condition}"에는 ${x.targets.map(short).join(", ")}를 적용하지 않는다.${inList.length ? ` 근거 중 이 목록에 든 조문: ${inList.join(", ")}.` : ""}${outList.length ? ` 질문이 묻는 조문 중 이 목록에 없는 조문: ${outList.join(", ")}.` : ""} 이 목록은 그 조문들을 적용하지 않는다는 뜻이며, 그 조문이 정한 용어·개념을 목록에 없는 다른 조문이 쓰는 경우까지 배제하는지는 따로 판단할 쟁점이다.`);
       }
     }
   }

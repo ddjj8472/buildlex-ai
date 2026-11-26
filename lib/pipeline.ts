@@ -7,7 +7,7 @@ import { fetchAppendix, lawApiEnabled, searchInterpretations } from "./law-api.t
 import { FALLBACK_MODELS, FAST_MODEL, MODEL, STRONG_MODELS, generateJSON, hasLLM, isMock, streamText, strongOnly, withStrongModels } from "./llm.ts";
 import { parseCitations, missingLaws } from "./cite.ts";
 import { formatDoctrines, matchDoctrines } from "./doctrine.ts";
-import { consolidate, contestedIssues, formatAnalysis, ground, isContested, judgePrompt, mergeJudgments, parseJudgment, needsReasoning, parseAnalysis, reasonPrompt, type Consolidated } from "./reason.ts";
+import { consolidate, contestedIssues, arbiterPrompt, formatAnalysis, ground, isContested, judgePrompt, mergeJudgments, parseJudgment, type Judgment, needsReasoning, parseAnalysis, reasonPrompt, type Consolidated } from "./reason.ts";
 import { analyzeStructure } from "./structure.ts";
 import { findPrecedents } from "./precedent.ts";
 import { loadPrecedentIndex } from "./precedent-index.ts";
@@ -24,6 +24,8 @@ const LEAN = process.env.BUILDLEX_RAG_LEAN === "1";
 const JUDGE_MODELS = [...new Set([...(process.env.GEMINI_JUDGE_MODELS || "gemini-3-flash-preview,gemini-flash-latest,gemini-pro-latest").split(",").map(s => s.trim()).filter(Boolean), MODEL])];
 /** Extra time a contested question may take for adjudication (route maxDuration is 120 s). */
 const JUDGE_BUDGET_MS = Number(process.env.BUILDLEX_JUDGE_BUDGET_MS || 30000);
+/** The arbiter for split verdicts runs after the two judges (its time is added to the answer deadlines). */
+const ARBITER_BUDGET_MS = Number(process.env.BUILDLEX_ARBITER_BUDGET_MS || 20000);
 /** Independent judge calls per contested question (2 = vote; 1 = single judge, half the quota). */
 const JUDGE_REPEAT = Math.max(1, Math.min(2, Number(process.env.BUILDLEX_JUDGE_REPEAT || 2)));
 
@@ -43,31 +45,44 @@ async function judgeLane(prompt: string, models: string[], deadline: number, c: 
 }
 
 /**
- * Contested issues are judged twice, in parallel, preferably by two different models (a disagreement between
- * models is a better signal of a genuinely open question than resampling one model). Agreement confirms the
- * verdict; a split is reported as "견해 대립" (confidence 낮음) instead of picking one side silently.
+ * Contested issues are judged by two judges in parallel with different roles — one argues from the text, one
+ * from system, purpose and consequences — because two judges given the same prompt tend to fail together (LLM
+ * errors are strongly correlated, even across providers). Agreement confirms the verdict. Where they split, an
+ * arbiter decides by the Supreme Court's order of method (문언 → 그 범위 안에서 체계·목적), and the losing view
+ * is kept as "견해 대립". With one judge only (JUDGE_REPEAT=1) the text judge's role is dropped.
  */
-async function adjudicate(query: string, c: Consolidated, evidence: Evidence[], structure: string, doctrine: string, interpretations: Interpretation[], signal: AbortSignal | undefined): Promise<{ model?: string; changed: number; errors: string[]; second?: string; split: number }> {
-  const prompt = judgePrompt({ query, c, structure, doctrine, interpretations, evidenceText: formatEvidence(evidence, 20000, query) });
+async function adjudicate(query: string, c: Consolidated, evidence: Evidence[], structure: string, doctrine: string, interpretations: Interpretation[], signal: AbortSignal | undefined): Promise<{ model?: string; changed: number; errors: string[]; second?: string; split: number; arbiter?: string }> {
+  const evidenceText = formatEvidence(evidence, 20000, query);
+  const base = { query, c, structure, doctrine, interpretations, evidenceText };
   const errors: string[] = [];
   const deadline = Date.now() + JUDGE_BUDGET_MS;
   const ctx = { query, structure };
   // Evaluation with strong models only: no lite model judges.
   const pool = strongOnly() ? JUDGE_MODELS.filter(m => !/lite/i.test(m)) : JUDGE_MODELS;
-  const laneA = pool;
-  // Lane B: another strong model, else a second sample of the first — never the answer model, whose
-  // sub-analysis is what is being checked.
-  const laneB = JUDGE_REPEAT > 1 ? [...pool.filter(m => m !== MODEL).slice(1), pool[0]] : [];
+  const two = JUDGE_REPEAT > 1;
+  // Lane B prefers another strong model, then the first again — never the answer model, whose sub-analysis is
+  // what is being checked.
+  const laneB = two ? [...pool.filter(m => m !== MODEL).slice(1), pool[0]] : [];
   const [a, b] = await Promise.all([
-    judgeLane(prompt, laneA, deadline, c, ctx, signal, errors),
-    laneB.length ? judgeLane(prompt, laneB, deadline, c, ctx, signal, errors) : Promise.resolve(null),
+    judgeLane(judgePrompt(two ? { ...base, role: "text" } : base), pool, deadline, c, ctx, signal, errors),
+    two ? judgeLane(judgePrompt({ ...base, role: "system" }), laneB, deadline, c, ctx, signal, errors) : Promise.resolve(null),
   ]);
   const first = a ?? b;
   if (!first) return { changed: 0, errors, split: 0 };
-  const { changed, split } = mergeJudgments(c, first, a && b ? b : null);
+  let arb: Map<string, Judgment> | null = null;
+  let arbiter: string | undefined;
+  if (a && b) {
+    const split = [...a.values()].filter(x => b.get(x.label) && b.get(x.label)!.conclusion !== x.conclusion).map(x => ({ label: x.label, text: x, system: b.get(x.label)! }));
+    if (split.length) {
+      const prompt = arbiterPrompt({ query, c, split, structure, interpretations, evidenceText: formatEvidence(evidence, 14000, query) });
+      arb = await judgeLane(prompt, pool, Date.now() + ARBITER_BUDGET_MS, c, ctx, signal, errors);
+      if (arb) arbiter = [...arb.values()][0].model;
+    }
+  }
+  const { changed, split } = mergeJudgments(c, first, a && b ? b : null, arb);
   const model = [...first.values()][0].model;
   const second = a && b ? [...b.values()][0].model : undefined;
-  return { model, changed, errors, second, split };
+  return { model, changed, errors, second, split, arbiter };
 }
 import { lawKeyOf, formatDate } from "./text.ts";
 import type { EvalMode, Evidence, EvidenceView, Interpretation, QueryAnalysis, SiteFacts, StageId, StreamEvent } from "./types.ts";
@@ -367,7 +382,7 @@ async function runPipelineInner(input: AskInput, emit: Emit): Promise<void> {
     if (reasoning && isContested(reasoning, { query: input.query, structure: structure() }) && elapsed() < 40000 + shift) {
       const t = Date.now();
       const j = await stage(emit, "reason", () => adjudicate(input.query, reasoning!, evidence, structure(), doctrine, interpretations, input.signal),
-        x => x.model ? `판정(${x.model}${x.second ? ` + ${x.second}` : ""}): 쟁점 ${contestedIssues(reasoning!, { query: input.query, structure: structure() }).length}개 검토 · 결론 변경 ${x.changed}개${x.second ? x.split ? ` · 판정 엇갈림 ${x.split}개 → 견해 대립` : " · 두 판정 일치" : ""}` : `판정 실패 (${x.errors.join(" | ")})`).catch(() => null);
+        x => x.model ? `판정(${x.model}${x.second ? ` + ${x.second}` : ""}): 쟁점 ${contestedIssues(reasoning!, { query: input.query, structure: structure() }).length}개 검토 · 결론 변경 ${x.changed}개${x.second ? x.split ? ` · 문언/체계 판정 엇갈림 ${x.split}개 → ${x.arbiter ? `조정(${x.arbiter})` : "견해 대립"}` : " · 문언/체계 판정 일치" : ""}` : `판정 실패 (${x.errors.join(" | ")})`).catch(() => null);
       shift += Date.now() - t;
       if (j && !j.model) { const m = `결론 판정 모델을 호출하지 못했습니다: ${j.errors.join(" | ").slice(0, 200)}`; warnings.push(m); emit({ type: "warning", message: m }); }
     }
@@ -461,5 +476,7 @@ async function runPipelineInner(input: AskInput, emit: Emit): Promise<void> {
     // Evaluation is advisory: a failure here must not discard the answer.
   }
   void debug;
+  // A precedent citation must name a listed 해석례 ("(해석례2)"); a bare "(법제처 해석례 참고)" points at nothing.
+  answer = answer.replace(/\s*\((?:법제처\s*)?해석례\s*(?:참고|참조)\)/g, "");
   emit({ type: "done", answer, llm: hasLLM() });
 }

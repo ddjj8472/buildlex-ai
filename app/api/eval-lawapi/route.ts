@@ -42,6 +42,11 @@ export async function GET(req: NextRequest) {
     const d = await get({ endpoint: "lawSearch.do", target: "expc", query: p.get("query") || "건축법", display: p.get("display") || "5", page: p.get("page") || "1", ...(p.get("search") ? { search: p.get("search")! } : {}) });
     return Response.json(JSON.parse(JSON.stringify(d).replace(/OC=[^&"]*/g, "OC=")));
   }
+  // Any other list/detail of the same API (e.g. target=molitCgmExpc, 중앙부처 1차 해석), for probing its shape.
+  if (kind === "raw") {
+    const d = await get({ endpoint: p.get("endpoint") || "lawSearch.do", target: p.get("target") || "expc", ...(p.get("query") ? { query: p.get("query")! } : {}), ...(p.get("id") ? { ID: p.get("id")! } : {}), display: p.get("display") || "3", page: p.get("page") || "1" });
+    return Response.json(JSON.parse(JSON.stringify(d).replace(/OC=[^&"]*/g, "OC=")));
+  }
   if (kind === "expcd") return Response.json(shape(await get({ endpoint: "lawService.do", target: "expc", ID: p.get("id") || "" })));
   if (kind === "law") {
     const d = await get({ endpoint: "lawService.do", target: "law", MST: p.get("mst") || "" });

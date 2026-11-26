@@ -53,10 +53,38 @@ function lineMeta(text: string): Line[] {
 }
 
 /** How strongly a 제·개정이유 is about this provision: it names the article (주요내용 "(제6조제1항제6호 신설)") or its terms. */
-function reasonScore(text: string, articleNo: string, heading: string, terms: string[]): number {
+/** IDF of a term over one law's 제·개정이유: "건축물" or "용도변경" appear in most of them and say little. */
+const dfCache = new Map<string, { n: number; df: Map<string, number> }>();
+function idfOf(lawKey: string, list: Reason[]): (t: string) => number {
+  let c = dfCache.get(lawKey);
+  if (!c) { c = { n: list.length, df: new Map() }; dfCache.set(lawKey, c); }
+  const cc = c;
+  return (t: string) => {
+    if (!cc.df.has(t)) cc.df.set(t, list.filter(r => r.text.includes(t)).length);
+    return Math.log(1 + cc.n / (1 + cc.df.get(t)!));
+  };
+}
+const articleRe = (articleNo: string) => {
+  const m = articleNo.replace(/\s+/g, "").match(/^제(\d+)조(?:의(\d+))?/);
+  return m ? { art: `제${m[1]}조${m[2] ? `의${m[2]}` : ""}`, re: new RegExp(`제${m[1]}조${m[2] ? `의${m[2]}` : "(?!의)"}`) } : null;
+};
+
+/**
+ * How strongly a 제·개정이유 is about this provision: it names the article — more if it names the 항·호 the
+ * question is about ("(제49조제3항 신설)") — and shares the question's distinctive terms (IDF-weighted, so
+ * common words of the law count little).
+ */
+function reasonScore(text: string, articleNo: string, heading: string, terms: string[], focus: { paras: number[]; items: number[] }, idf: (t: string) => number): number {
   const flat = text.replace(/\s+/g, "");
-  const num = articleNo.replace(/\s+/g, "");
-  return (num && flat.includes(num) ? 8 : 0) + termScore(text, terms) + (heading && text.includes(heading) ? 4 : 0);
+  const a = articleRe(articleNo);
+  let s = 0;
+  if (a && a.re.test(flat)) {
+    s += 8;
+    if (focus.paras.some(p => flat.includes(`${a.art}제${p}항`))) s += 6;
+    if (focus.items.some(i => new RegExp(`${a.art}(제\\d+항)?제${i}호`).test(flat))) s += 6;
+  }
+  for (const t of terms) if (t.length >= 2 && text.includes(t)) s += 2 * idf(t);
+  return s + (heading && text.includes(heading) ? 4 : 0);
 }
 
 export type Pick = { chunk: Chunk; date: string; kind: string; mst: string; paragraph: string; reason?: string };
@@ -95,10 +123,17 @@ export function pickAmendments(evidence: Evidence[], terms: string[], max = 2, a
     const add = (t: string, w: number) => { for (const g of tagsOf(t)) { const cur = dates.get(g.date); if (!cur || cur.w < w || (g.kind !== "개정" && cur.kind === "개정")) dates.set(g.date, { kind: g.kind, w: Math.max(w, cur?.w ?? 0) }); } };
     for (const t of target) add(t.l, 3);
     for (const t of leads) add(t.l, 1);
+    // Amendments the tags don't show (a 호 rewritten with its 항's tag list cut short, an older wording) are found
+    // through the reasons themselves: every reason of this law that names the article is a candidate too.
+    const lawReasons = rs?.[e.chunk.lawKey] ?? [];
+    const art = articleRe(e.chunk.articleNo);
+    if (art) for (const r of lawReasons) if (!dates.has(r.date) && art.re.test(r.text.replace(/\s+/g, ""))) dates.set(r.date, { kind: r.kind.includes("제정") ? "신설" : "개정", w: 0 });
+    const idf = idfOf(e.chunk.lawKey, lawReasons);
+    const focus = { paras: [...new Set(target.map(t => t.para).filter(Boolean))], items: [...new Set(target.map(t => t.item).filter(Boolean))] };
     const scored = [...dates].filter(([d]) => !asOf || d <= asOf).map(([date, x]) => {
       const v = list.find(y => y.date === date);
-      const r = rs?.[e.chunk.lawKey]?.find(y => y.date === date);
-      return { date, kind: x.kind, v, r, s: (r ? reasonScore(r.text, e.chunk.articleNo, e.chunk.heading, terms) : 0) * 10 + x.w + (x.kind !== "개정" ? 2 : 0) };
+      const r = lawReasons.find(y => y.date === date);
+      return { date, kind: x.kind, v, r, s: (r ? reasonScore(r.text, e.chunk.articleNo, e.chunk.heading, terms, focus, idf) : 0) * 10 + x.w + (x.kind !== "개정" ? 2 : 0) };
     }).filter(x => x.v);
     if (!scored.length) continue;
     scored.sort((a, b) => b.s - a.s || b.date.localeCompare(a.date));

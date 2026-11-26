@@ -144,3 +144,23 @@ test("입법 취지: the amendment behind the named 항·호, the one whose 개�
   assert.equal(pickAmendments(ev, ["리모델링", "완화"])[0].date, "2020-01-01");
   delete process.env.BUILDLEX_DATA_DIR;
 });
+
+test("adjudication arbiter: a split between the text and system judges is decided by the arbiter, the other view kept", async () => {
+  const { parseJudgment, mergeJudgments, formatAnalysis, arbiterPrompt, judgePrompt } = await import("../lib/reason.ts");
+  const mk = (conclusion: string) => ({ label: "가", issue: "쟁점가", rules: [], elements: [], exceptions: [], method: "", basis: "반대해석", counter: "반론", conclusion, answer: "하위답" });
+  const c = consolidate([1, 2, 3].map(() => ({ model: "m", a: parseAnalysis({ issues: [mk("아니오")] }) })))!;
+  const v = (conclusion: string, confidence: string, answer: string, argument: string) => ({ issues: [{ label: "가", conclusion, answer, reason: "이유", confidence, argument }] });
+  const text = parseJudgment(c, v("아니오", "높음", "문언답", "문언 논거"), "T");
+  const system = parseJudgment(c, v("예", "높음", "체계답", "체계 논거"), "S");
+  const arb = parseJudgment(c, v("예", "높음", "조정답", "-"), "A");
+  const r = mergeJudgments(c, text, system, arb);
+  assert.equal(r.split, 1);
+  assert.equal(c.issues[0].judged?.conclusion, "예");
+  assert.equal(c.issues[0].judged?.confidence, "보통");            // a split caps the arbiter's confidence
+  assert.equal(c.issues[0].judged?.other?.conclusion, "아니오");    // the text judge's view is kept
+  assert.match(formatAnalysis(c), /반대로 판정함\(견해 대립\): 아니오 — 문언답 \/ 이유: 문언 논거/);
+  const base = { query: "q", c, evidenceText: "e" };
+  assert.match(judgePrompt({ ...base, role: "text" }), /문언 검토관/);
+  assert.match(judgePrompt({ ...base, role: "system" }), /체계·목적 검토관/);
+  assert.match(arbiterPrompt({ ...base, split: [{ label: "가", text: text.get("가")!, system: system.get("가")! }] }), /2006다81035/);
+});
