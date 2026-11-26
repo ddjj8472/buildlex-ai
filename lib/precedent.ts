@@ -11,6 +11,7 @@
 // test case, so only what existed before the question can be used (no look-ahead).
 import { interpretationDetail, lawApiEnabled, listInterpretations, type InterpretationItem } from "./law-api.ts";
 import { embedLocal, localModelAvailable } from "./local-embed.ts";
+import { loadPrecedentIndex, searchPrecedentIndex } from "./precedent-index.ts";
 import type { Interpretation, QueryAnalysis } from "./types.ts";
 
 const normTitle = (t: string) => t.replace(/^[^-]{1,40}\s-\s/, "").replace(/[^가-힣A-Za-z0-9]/g, "").slice(0, 40);
@@ -42,9 +43,16 @@ export function precedentQueries(a: QueryAnalysis, structureLines: string[] = []
 
 const dot = (x: Float32Array, y: Float32Array) => { let s = 0; for (let i = 0; i < x.length; i++) s += x[i] * y[i]; return s; };
 
-export async function findPrecedents(p: { query: string; analysis: QueryAnalysis; structureLines?: string[]; holdout?: string[]; asOf?: string; limit?: number }): Promise<Interpretation[]> {
-  if (!lawApiEnabled()) return [];
+export async function findPrecedents(p: { query: string; analysis: QueryAnalysis; structureLines?: string[]; holdout?: string[]; holdoutNos?: string[]; asOf?: string; limit?: number }): Promise<Interpretation[]> {
   const limit = p.limit ?? 3;
+  // 1. The built vector index of building-law 해석례 (scripts/build-precedents.ts), when present.
+  if (loadPrecedentIndex() && localModelAvailable()) {
+    const qv = await embedLocal(`query: ${p.analysis.standalone || p.query}`.slice(0, 800)).catch(() => null);
+    const principle = precedentQueries(p.analysis, p.structureLines).join(" ");
+    return searchPrecedentIndex({ queryVec: qv, queryText: `${p.analysis.standalone || p.query} ${principle}`, limit, holdout: p.holdout, holdoutNos: p.holdoutNos, asOf: p.asOf });
+  }
+  // 2. Otherwise live search through the API.
+  if (!lawApiEnabled()) return [];
   const cutoff = p.asOf ? dateKey(p.asOf) : 0;
   const lists = await Promise.allSettled(precedentQueries(p.analysis, p.structureLines).map(q => listInterpretations(q, 20)));
   const seen = new Map<string, InterpretationItem>();

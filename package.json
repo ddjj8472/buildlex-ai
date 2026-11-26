@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+    "prebuild": "tsx scripts/build-precedents.ts",
     "build": "next build",
     "start": "next start",
     "lint": "tsc --noEmit",

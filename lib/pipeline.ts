@@ -7,9 +7,11 @@ import { fetchAppendix, lawApiEnabled, searchInterpretations } from "./law-api.t
 import { FALLBACK_MODELS, FAST_MODEL, MODEL, generateJSON, hasLLM, isMock, streamText } from "./llm.ts";
 import { parseCitations, missingLaws } from "./cite.ts";
 import { formatDoctrines, matchDoctrines } from "./doctrine.ts";
-import { applyJudgment, consolidate, contestedIssues, formatAnalysis, ground, isContested, judgePrompt, needsReasoning, parseAnalysis, reasonPrompt, type Consolidated } from "./reason.ts";
+import { consolidate, contestedIssues, formatAnalysis, ground, isContested, judgePrompt, mergeJudgments, parseJudgment, needsReasoning, parseAnalysis, reasonPrompt, type Consolidated } from "./reason.ts";
 import { analyzeStructure } from "./structure.ts";
 import { findPrecedents } from "./precedent.ts";
+import { loadPrecedentIndex } from "./precedent-index.ts";
+import { legislativePurpose } from "./legislative.ts";
 import { answerPrompt, analysisPrompt, formatEvidence, evaluationPrompt, rerankPrompt, type Note, type Turn } from "./prompts.ts";
 import { hybridSearch, type Reranker } from "./search.ts";
 
@@ -22,22 +24,48 @@ const LEAN = process.env.BUILDLEX_RAG_LEAN === "1";
 const JUDGE_MODELS = [...new Set([...(process.env.GEMINI_JUDGE_MODELS || "gemini-3-flash-preview,gemini-flash-latest,gemini-pro-latest,gemini-3-pro-preview").split(",").map(s => s.trim()).filter(Boolean), MODEL])];
 /** Extra time a contested question may take for adjudication (route maxDuration is 120 s). */
 const JUDGE_BUDGET_MS = Number(process.env.BUILDLEX_JUDGE_BUDGET_MS || 30000);
+/** Independent judge calls per contested question (2 = vote; 1 = single judge, half the quota). */
+const JUDGE_REPEAT = Math.max(1, Math.min(2, Number(process.env.BUILDLEX_JUDGE_REPEAT || 2)));
 
-async function adjudicate(query: string, c: Consolidated, evidence: Evidence[], structure: string, doctrine: string, interpretations: Interpretation[], signal: AbortSignal | undefined): Promise<{ model?: string; changed: number; errors: string[] }> {
-  const prompt = judgePrompt({ query, c, structure, doctrine, interpretations, evidenceText: formatEvidence(evidence, 20000, query) });
-  const errors: string[] = [];
-  const deadline = Date.now() + JUDGE_BUDGET_MS;
-  for (const model of JUDGE_MODELS) {
+/** One judge call down a list of models: the first that answers in the expected shape. */
+async function judgeLane(prompt: string, models: string[], deadline: number, c: Consolidated, ctx: { query: string; structure: string }, signal: AbortSignal | undefined, errors: string[]) {
+  for (const model of models) {
     const left = deadline - Date.now();
     if (left < 5000) break;
     try {
       const raw = await generateJSON<unknown>(prompt, { model, only: true, thinking: "low", timeoutMs: left, signal, maxTokens: 4096 });
-      const changed = applyJudgment(c, raw, model, { query, structure });
-      if (c.issues.some(i => i.judged)) return { model, changed, errors };
+      const j = parseJudgment(c, raw, model, ctx);
+      if (j.size) return j;
       errors.push(`${model}: 판정 형식 불일치`);
     } catch (e) { errors.push(`${model}: ${(e instanceof Error ? e.message : String(e)).slice(0, 90)}`); }
   }
-  return { changed: 0, errors };
+  return null;
+}
+
+/**
+ * Contested issues are judged twice, in parallel, preferably by two different models (a disagreement between
+ * models is a better signal of a genuinely open question than resampling one model). Agreement confirms the
+ * verdict; a split is reported as "견해 대립" (confidence 낮음) instead of picking one side silently.
+ */
+async function adjudicate(query: string, c: Consolidated, evidence: Evidence[], structure: string, doctrine: string, interpretations: Interpretation[], signal: AbortSignal | undefined): Promise<{ model?: string; changed: number; errors: string[]; second?: string; split: number }> {
+  const prompt = judgePrompt({ query, c, structure, doctrine, interpretations, evidenceText: formatEvidence(evidence, 20000, query) });
+  const errors: string[] = [];
+  const deadline = Date.now() + JUDGE_BUDGET_MS;
+  const ctx = { query, structure };
+  const laneA = JUDGE_MODELS;
+  // Lane B: another strong model, else a second sample of the first — never the answer model, whose
+  // sub-analysis is what is being checked.
+  const laneB = JUDGE_REPEAT > 1 ? [...JUDGE_MODELS.filter(m => m !== MODEL).slice(1), JUDGE_MODELS[0]] : [];
+  const [a, b] = await Promise.all([
+    judgeLane(prompt, laneA, deadline, c, ctx, signal, errors),
+    laneB.length ? judgeLane(prompt, laneB, deadline, c, ctx, signal, errors) : Promise.resolve(null),
+  ]);
+  const first = a ?? b;
+  if (!first) return { changed: 0, errors, split: 0 };
+  const { changed, split } = mergeJudgments(c, first, a && b ? b : null);
+  const model = [...first.values()][0].model;
+  const second = a && b ? [...b.values()][0].model : undefined;
+  return { model, changed, errors, second, split };
 }
 import { lawKeyOf, formatDate } from "./text.ts";
 import type { EvalMode, Evidence, EvidenceView, Interpretation, QueryAnalysis, SiteFacts, StageId, StreamEvent } from "./types.ts";
@@ -55,6 +83,8 @@ export type AskInput = {
   noDoctrine?: boolean;
   /** Evaluation only: use only 법령해석례 dated before this date (no look-ahead past the test case). */
   asOf?: string;
+  /** Evaluation only: 안건번호 of held-out 해석례 (blocked in the precedent index). */
+  holdoutNos?: string[];
   signal?: AbortSignal;
 };
 
@@ -291,12 +321,19 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
   const structure = () => structureLines.join("\n");
   // Time spent on precedent search and adjudication; later stage deadlines move by this much (maxDuration 120 s).
   let shift = 0;
+  // 입법 취지: the 제·개정이유 of the amendment behind the provisions the question turns on (lib/legislative.ts),
+  // fetched alongside the precedent search and appended to the structure block.
+  const t0 = Date.now();
+  const purpose = needsReasoning(input.query)
+    ? legislativePurpose(evidence, analysis.legalTerms, input.asOf).catch(e => { warnings.push(`입법 취지 조회 실패: ${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`); return [] as string[]; })
+    : Promise.resolve([] as string[]);
   // 해석례: for judgment questions, similar precedents by meaning (lib/precedent.ts), with their 이유.
-  if (lawApiEnabled() && needsReasoning(input.query)) {
-    const t = Date.now();
-    interpretations = await findPrecedents({ query: input.query, analysis, structureLines, holdout: input.holdout, asOf: input.asOf }).catch(e => { warnings.push(`해석례 검색 실패: ${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`); return []; });
-    shift += Math.min(15000, Date.now() - t);
+  if ((lawApiEnabled() || loadPrecedentIndex()) && needsReasoning(input.query)) {
+    interpretations = await findPrecedents({ query: input.query, analysis, structureLines, holdout: input.holdout, holdoutNos: input.holdoutNos, asOf: input.asOf }).catch(e => { warnings.push(`해석례 검색 실패: ${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`); return []; });
   }
+  const purposeLines = await purpose;
+  if (purposeLines.length) structureLines = [...structureLines, ...purposeLines];
+  shift += Math.min(15000, Date.now() - t0);
   let notes = matchNotes(`${analysis.standalone} ${analysis.legalTerms.join(" ")}`, evidence.map(e => e.chunk.id));
   // 법리 노트: general interpretation principles matched on the question itself (lib/doctrine.ts).
   const doctrines = input.noDoctrine ? [] : matchDoctrines(`${input.query} ${analysis.standalone}`);
@@ -319,7 +356,7 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
     if (reasoning && isContested(reasoning, { query: input.query, structure: structure() }) && elapsed() < 40000 + shift) {
       const t = Date.now();
       const j = await stage(emit, "reason", () => adjudicate(input.query, reasoning!, evidence, structure(), doctrine, interpretations, input.signal),
-        x => x.model ? `판정(${x.model}): 쟁점 ${contestedIssues(reasoning!, { query: input.query, structure: structure() }).length}개 검토 · 결론 변경 ${x.changed}개` : `판정 실패 (${x.errors.join(" | ")})`).catch(() => null);
+        x => x.model ? `판정(${x.model}${x.second ? ` + ${x.second}` : ""}): 쟁점 ${contestedIssues(reasoning!, { query: input.query, structure: structure() }).length}개 검토 · 결론 변경 ${x.changed}개${x.second ? x.split ? ` · 판정 엇갈림 ${x.split}개 → 견해 대립` : " · 두 판정 일치" : ""}` : `판정 실패 (${x.errors.join(" | ")})`).catch(() => null);
       shift += Date.now() - t;
       if (j && !j.model) { const m = `결론 판정 모델을 호출하지 못했습니다: ${j.errors.join(" | ").slice(0, 200)}`; warnings.push(m); emit({ type: "warning", message: m }); }
     }

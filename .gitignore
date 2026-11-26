@@ -8,3 +8,6 @@ next-env.d.ts
 *.tsbuildinfo
 .vercel
 scripts/_*.mts
+data/index/expc.json
+data/index/expc.bin
+data/index/law-reasons.json

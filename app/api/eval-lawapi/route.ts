@@ -3,7 +3,14 @@
 //   kind=expc   → 법령해석례 list (raw, OC stripped)
 //   kind=expcd  → one 법령해석례 detail (?id=) — keys and lengths
 //   kind=law    → one law version (?mst=) — top-level keys and the 제개정이유 excerpt
+//   kind=index  → the built 해석례 vector index / 개정이유 file (info only)
+//   kind=prec   → precedent search as the pipeline runs it (?query=&asOf=&holdout=&nos=) — titles and scores
+import fs from "node:fs";
+import path from "node:path";
 import { NextRequest } from "next/server";
+import { findPrecedents } from "@/lib/precedent";
+import { precedentIndexInfo } from "@/lib/precedent-index";
+import { ruleAnalysis } from "@/lib/analyze-rules";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -40,6 +47,17 @@ export async function GET(req: NextRequest) {
     const d = await get({ endpoint: "lawService.do", target: "law", MST: p.get("mst") || "" });
     const law = (d["법령"] || {}) as Record<string, unknown>;
     return Response.json({ keys: Object.keys(law), shape: shape(Object.fromEntries(Object.entries(law).filter(([k]) => !/조문|별표/.test(k)))) });
+  }
+  if (kind === "index") {
+    const f = path.join(process.cwd(), "data", "index", "law-reasons.json");
+    const reasons = fs.existsSync(f) ? Object.fromEntries(Object.entries(JSON.parse(fs.readFileSync(f, "utf8")) as Record<string, unknown[]>).map(([k, v]) => [k, v.length])) : null;
+    return Response.json({ precedents: precedentIndexInfo(), reasons });
+  }
+  if (kind === "prec") {
+    const query = p.get("query") || "";
+    const t = Date.now();
+    const hits = await findPrecedents({ query, analysis: ruleAnalysis(query, [], {}), structureLines: [], holdout: p.get("holdout") ? [p.get("holdout")!] : undefined, holdoutNos: p.get("nos") ? p.get("nos")!.split(",") : undefined, asOf: p.get("asOf") || undefined, limit: 5 });
+    return Response.json({ ms: Date.now() - t, hits: hits.map(h => ({ title: h.title, date: h.date, agency: h.agency, q: h.question.slice(0, 120) })) });
   }
   return Response.json({ error: "kind" }, { status: 400 });
 }

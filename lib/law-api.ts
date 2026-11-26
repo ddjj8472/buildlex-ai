@@ -100,3 +100,27 @@ export async function interpretationDetail(id: string, timeoutMs = 6000): Promis
   const d = rec((await getJSON({ endpoint: "lawService.do", target: "expc", ID: id }, timeoutMs))["ExpcService"]);
   return { question: strip(txt(d["질의요지"])), answer: strip(txt(d["회답"])), reason: strip(txt(d["이유"])) };
 }
+
+/** One page of a 법령해석례 list, with the total count (for paging through a law's whole set). */
+export async function listInterpretationsPage(query: string, page: number, display = 100, timeoutMs = 15000): Promise<{ total: number; items: (InterpretationItem & { no: string; asker: string })[] }> {
+  const data = await getJSON({ endpoint: "lawSearch.do", target: "expc", query, display: String(display), page: String(page) }, timeoutMs);
+  const e = rec(data["Expc"]);
+  const items = arr(e["expc"] as J | J[] | undefined).map(rec).map(it => {
+    const id = txt(it["법령해석례일련번호"]);
+    return {
+      id, title: strip(txt(it["안건명"])), agency: txt(it["회신기관명"]) || "법제처", date: txt(it["회신일자"]),
+      no: txt(it["안건번호"]), asker: txt(it["질의기관명"]),
+      url: `https://www.law.go.kr/LSW/expcInfoP.do?expcSeq=${id}`,
+    };
+  }).filter(x => x.id && x.title);
+  return { total: Number(txt(e["totalCnt"])) || 0, items };
+}
+
+/** 제·개정이유 of one law version (법령MST), as paragraphs. Cached like every call. */
+export async function fetchLawReasons(mst: string, timeoutMs = 9000): Promise<string[]> {
+  if (!lawApiEnabled() || !mst) return [];
+  const data = await getJSON({ endpoint: "lawService.do", target: "law", MST: mst }, timeoutMs);
+  const r = rec(rec(data["법령"])["제개정이유"]);
+  const flat = (v: unknown): string[] => (Array.isArray(v) ? v.flatMap(flat) : typeof v === "string" ? [v] : v && typeof v === "object" ? flat(Object.values(v as J)) : []);
+  return flat(r["제개정이유내용"]).map(s => strip(s)).filter(Boolean);
+}

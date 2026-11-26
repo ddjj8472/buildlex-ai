@@ -41,7 +41,9 @@ export type ReasonIssue = {
 };
 export type LegalAnalysis = { issues: ReasonIssue[] };
 /** `alt` = best-grounded analysis reaching a different conclusion, kept when the votes split so the answer step can adjudicate. */
-export type Judgment = { label: string; conclusion: Verdict; answer: string; reason: string; confidence: "높음" | "보통" | "낮음"; model: string };
+export type Judgment = { label: string; conclusion: Verdict; answer: string; reason: string; confidence: "높음" | "보통" | "낮음"; model: string;
+  /** A second, independent judgment: agreed (votes 2) or split (the other side, reported as 견해 대립). */
+  votes?: number; other?: { conclusion: Verdict; answer: string; reason: string; model: string } };
 export type Consolidated = { issues: (ReasonIssue & { votes: Verdict[]; agree: boolean; dropped: string[]; alt?: ReasonIssue; judged?: Judgment })[]; runs: number; models: string[] };
 
 const VERDICTS: Verdict[] = ["예", "아니오", "조건부", "판단불가"];
@@ -174,7 +176,7 @@ export function judgePrompt(p: { query: string; c: Consolidated; structure?: str
     i.counter ? `  반론: ${i.counter}` : "",
     i.alt ? `  반대 결론(${i.votes.filter(v => v === i.alt!.conclusion).length}/${i.votes.length}): ${i.alt.conclusion} — ${i.alt.answer}` : "",
   ].filter(Boolean).join("\n")).join("\n\n");
-  return `너는 대한민국 법제처의 선임 법제관이다. 아래 쟁점은 하위 분석의 결론을 그대로 믿기 어려운 것이다(결론이 엇갈렸거나, 반대해석에 기대거나, 준용·적용 제외·부칙처럼 조문 사이의 관계로 결론이 정해지는 쟁점). 하위 분석의 결론에 끌려가지 말고 [검색 근거] 원문과 [법령 구조 분석]만으로 결론을 다시 판정해 JSON으로만 답한다.
+  return `너는 대한민국 법제처의 선임 법제관이다. 아래 쟁점은 하위 분석의 결론을 그대로 믿기 어려운 것이다(결론이 엇갈렸거나, 반대해석에 기대거나, 준용·적용 제외·부칙처럼 조문 사이의 관계로 결론이 정해지는 쟁점). 하위 분석의 결론에 끌려가지 말고 [검색 근거] 원문과 [법령 구조 분석]만으로 결론을 다시 판정해 JSON으로만 답한다. [입법 취지]는 그 조문을 만들거나 바꾼 개정의 공식 제·개정이유다. 문언이 두 가지로 읽힐 때 어느 쪽이 그 개정의 목적에 맞는지 정하는 근거로 쓰고, 명확한 문언을 뒤집는 데 쓰지 않는다.
 
 [판정 방법]
 1. 결론을 좌우하는 문언이 대상을 명시적으로 한정·배제하는지 확인한다. 명시적이면 그 문언대로 판정한다.
@@ -202,9 +204,10 @@ ${p.interpretations.map((x, i) => `(해석례${i + 1}) ${x.title} (${x.date})\n�
 }
 
 /** Applies the adjudicator's verdicts; returns how many issues changed conclusion. */
-export function applyJudgment(c: Consolidated, raw: unknown, model: string, ctx: ContestContext = {}): number {
+/** The judge's verdicts by issue label (contested issues only; nothing is changed). */
+export function parseJudgment(c: Consolidated, raw: unknown, model: string, ctx: ContestContext = {}): Map<string, Judgment> {
   const list = arr((raw && typeof raw === "object" ? (raw as Record<string, unknown>).issues : undefined) ?? raw);
-  let changed = 0;
+  const out = new Map<string, Judgment>();
   const pool = contestedIssues(c, ctx);
   for (const x of list) {
     const label = str(x.label, 8);
@@ -214,10 +217,35 @@ export function applyJudgment(c: Consolidated, raw: unknown, model: string, ctx:
     const conclusion = (VERDICTS.find(v => cs.startsWith(v)) ?? "판단불가") as Verdict;
     const conf = str(x.confidence, 4);
     const confidence = (conf.startsWith("높") ? "높음" : conf.startsWith("낮") ? "낮음" : "보통") as Judgment["confidence"];
-    issue.judged = { label: issue.label, conclusion, answer: str(x.answer, 400), reason: str(x.reason, 600), confidence, model };
-    if (conclusion !== issue.conclusion) changed++;
+    out.set(issue.label, { label: issue.label, conclusion, answer: str(x.answer, 400), reason: str(x.reason, 600), confidence, model });
   }
-  return changed;
+  return out;
+}
+
+/**
+ * Sets each issue's final judgment from one or two independent judgments. Two that agree → votes 2 (and the
+ * higher confidence of the two, since agreement is evidence); two that differ → the first is kept as the more
+ * likely reading but marked 낮음 with the other side attached, so the answer presents it as 견해 대립.
+ */
+export function mergeJudgments(c: Consolidated, a: Map<string, Judgment>, b: Map<string, Judgment> | null): { changed: number; split: number } {
+  let changed = 0, split = 0;
+  const rank = { 낮음: 0, 보통: 1, 높음: 2 } as const;
+  for (const issue of c.issues) {
+    const x = a.get(issue.label) ?? b?.get(issue.label);
+    if (!x) continue;
+    const y = a.get(issue.label) ? b?.get(issue.label) : undefined;
+    let j: Judgment = { ...x };
+    if (y && y.conclusion === x.conclusion) j = { ...x, votes: 2, confidence: rank[y.confidence] > rank[x.confidence] ? y.confidence : x.confidence };
+    else if (y) { j = { ...x, votes: 1, confidence: "낮음", other: { conclusion: y.conclusion, answer: y.answer, reason: y.reason, model: y.model } }; split++; }
+    issue.judged = j;
+    if (j.conclusion !== issue.conclusion) changed++;
+  }
+  return { changed, split };
+}
+
+/** Single judgment (kept for callers and tests that judge once). */
+export function applyJudgment(c: Consolidated, raw: unknown, model: string, ctx: ContestContext = {}): number {
+  return mergeJudgments(c, parseJudgment(c, raw, model, ctx), null).changed;
 }
 
 /** Block handed to the answer prompt. */
@@ -234,11 +262,14 @@ export function formatAnalysis(c: Consolidated): string {
     /반대해석/.test(i.basis || "") ? "  → 반대해석에 기댄 결론: 원문이 그 대상을 명시적으로 한정·배제하는지 다시 확인하고, 명시가 없으면 반론과 [법령 구조 분석]에 비추어 결론을 정할 것" : "",
     i.dropped.length ? `  ※ 근거 원문에서 찾지 못해 제외한 조건(결론·설명에 쓰지 말 것): ${i.dropped.join("; ")}` : "",
     ...(i.judged ? [
-      `  ▶ 최종 결론(판정 ${i.judged.model}, 확신도 ${i.judged.confidence}): ${i.judged.conclusion} — ${i.judged.answer}`,
+      `  ▶ 최종 결론(판정 ${i.judged.model}${i.judged.votes === 2 ? " 외 1개 모델 일치" : ""}, 확신도 ${i.judged.confidence}): ${i.judged.conclusion} — ${i.judged.answer}`,
       `    판정 이유: ${i.judged.reason}`,
+      i.judged.other ? `    ※ 다른 판정 모델(${i.judged.other.model})은 반대로 판정함(견해 대립): ${i.judged.other.conclusion} — ${i.judged.other.answer} / 이유: ${i.judged.other.reason}` : "",
       i.judged.conclusion !== i.conclusion ? `  (하위 분석의 결론 "${i.conclusion} — ${i.answer}"은 판정에서 채택되지 않았다. 답변에 쓰지 말 것)` : "",
       i.judged.confidence === "낮음"
-        ? "    → 판정 확신도 낮음: 결론 첫 문장에 '해석이 갈릴 수 있는 쟁점'이라고 밝히고 더 유력한 해석과 반대 해석을 함께 쓸 것"
+        ? i.judged.other
+          ? "    → 판정이 엇갈림: 결론 첫 문장에 '해석이 갈릴 수 있는 쟁점'이라고 밝히고, 위 최종 결론을 더 유력한 해석으로, 다른 판정을 반대 해석으로 각각 근거와 함께 쓸 것"
+          : "    → 판정 확신도 낮음: 결론 첫 문장에 '해석이 갈릴 수 있는 쟁점'이라고 밝히고 더 유력한 해석과 반대 해석을 함께 쓸 것"
         : "    → 결론 첫 문장은 이 최종 결론과 같게 쓸 것",
     ] : [
       i.agree
@@ -285,7 +316,7 @@ export function reasonPrompt(p: { query: string; evidenceText: string; interpret
    대전제가 준용으로 적용되는 조문이면([법령 구조 분석]의 [준용] 참고), 그 조문의 행위·주체 요건을 준용 대상의 행위·주체로 바꿔 쓴 뒤 충족 여부를 판단하고, element 끝에 "(준용: 바꿔 읽음)"이라고 적는다. quote는 원문 그대로 둔다.
 4. 단서·예외·준용(exceptions): "다만", "제외한다", "준용한다/준용하지 아니한다", 괄호 예외를 원문 그대로 옮기고, 그 문구가 빼거나 넓히는 대상(covers)을 문구가 가리키는 범위로만 적는다. 먼저 의무를 직접 정한 근거 조문("~하려는 자는 …하여야 한다")을 찾고, 단서가 그 근거 조문 자체를 빼는지 아니면 다른 조문의 준용만 빼는지 구분한다. 특정 조문의 준용만 빠지면 근거 조문의 의무는 그대로 남는다.
 5. 해석 방법(method): 문언으로 결론이 나면 "문언". 문언이 두 가지로 읽히면 같은 법령 안의 같은 용어는 같은 뜻으로 읽고(체계적 해석), 그 규정의 취지에 맞는 쪽을 택한다(목적론적 해석). 개정 전후 적용은 부칙 문언으로 정한다. 어떤 방법을 썼는지 한 줄로 적는다.
-6. 근거 유형과 반론(basis, counter): 결론이 무엇에 기대는지 basis에 하나로 적는다 — "문언"(조문이 결론을 직접 말함), "반대해석"(그렇게 적혀 있지 않다·다른 조문은 따로 적었다·그 조문이 배제된다는 이유), "체계", "목적", "준용", "정의", "부칙". 그리고 결론과 반대로 읽는 가장 강한 논거를 counter에 한 줄로 적는다. basis가 "반대해석"이면 원문이 대상을 명시적으로 한정·배제하는지 확인하고, 명시가 없으면 반론과 [법령 구조 분석]을 비교해 원문 체계에 더 맞는 쪽으로 결론을 정한다.
+6. 근거 유형과 반론(basis, counter): 결론이 무엇에 기대는지 basis에 하나로 적는다 — "문언"(조문이 결론을 직접 말함), "반대해석"(그렇게 적혀 있지 않다·다른 조문은 따로 적었다·그 조문이 배제된다는 이유), "체계", "목적", "준용", "정의", "부칙". 그리고 결론과 반대로 읽는 가장 강한 논거를 counter에 한 줄로 적는다. basis가 "반대해석"이면 원문이 대상을 명시적으로 한정·배제하는지 확인하고, 명시가 없으면 반론과 [법령 구조 분석]을 비교해 원문 체계에 더 맞는 쪽으로 결론을 정한다. [입법 취지]는 그 조문을 만들거나 바꾼 개정의 공식 제·개정이유다. 문언이 두 가지로 읽힐 때 어느 쪽이 그 개정의 목적에 맞는지 정하는 근거로 쓰고, 명확한 문언을 뒤집는 데 쓰지 않는다. 그 경우 basis는 "목적"이다.
 7. 유사 해석례(precedent): [법제처 법령해석례] 중 쟁점이 같은 것이 있으면 그 결론과 핵심 논리를 한 줄로 적는다. 쟁점이 다르면 비운다.
 8. 결론(conclusion): "예" | "아니오" | "조건부" | "판단불가" 중 하나. answer는 질문에 대한 한 문장 답. "조건부"는 결론이 질문에 없는 사실에 달려 있을 때만, "판단불가"는 필요한 조문이 근거에 없을 때만 쓴다.
 

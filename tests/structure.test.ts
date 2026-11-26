@@ -87,3 +87,60 @@ test("adjudication: only contested issues go to the judge, and a verdict overrid
   applyJudgment(c, { issues: [{ label: "나", conclusion: "예", answer: "x", reason: "y", confidence: "낮음" }] }, "judge");
   assert.match(formatAnalysis(c), /해석이 갈릴 수 있는 쟁점/);
 });
+
+test("adjudication vote: two agreeing judges confirm, two differing judges become 견해 대립", async () => {
+  const { parseJudgment, mergeJudgments, formatAnalysis } = await import("../lib/reason.ts");
+  const mk = (conclusion: string) => ({ label: "가", issue: "쟁점가", rules: [], elements: [], exceptions: [], method: "", basis: "반대해석", counter: "반론", conclusion, answer: "하위답" });
+  const fresh = () => consolidate([1, 2, 3].map(() => ({ model: "m", a: parseAnalysis({ issues: [mk("아니오")] }) })))!;
+  const v = (conclusion: string, confidence: string, answer = "판정답") => ({ issues: [{ label: "가", conclusion, answer, reason: "이유", confidence }] });
+
+  const c1 = fresh();
+  const r1 = mergeJudgments(c1, parseJudgment(c1, v("예", "보통"), "A"), parseJudgment(c1, v("예", "높음"), "B"));
+  assert.deepEqual(r1, { changed: 1, split: 0 });
+  assert.equal(c1.issues[0].judged?.votes, 2);
+  assert.equal(c1.issues[0].judged?.confidence, "높음");
+  assert.match(formatAnalysis(c1), /판정 A 외 1개 모델 일치/);
+
+  const c2 = fresh();
+  const r2 = mergeJudgments(c2, parseJudgment(c2, v("예", "높음"), "A"), parseJudgment(c2, v("아니오", "높음", "반대답"), "B"));
+  assert.equal(r2.split, 1);
+  assert.equal(c2.issues[0].judged?.confidence, "낮음");
+  const t2 = formatAnalysis(c2);
+  assert.match(t2, /다른 판정 모델\(B\)은 반대로 판정함\(견해 대립\): 아니오 — 반대답/);
+  assert.match(t2, /판정이 엇갈림/);
+
+  // Only one judge answered: it stands alone.
+  const c3 = fresh();
+  mergeJudgments(c3, parseJudgment(c3, v("예", "높음"), "A"), null);
+  assert.equal(c3.issues[0].judged?.votes, undefined);
+  assert.equal(c3.issues[0].judged?.confidence, "높음");
+});
+
+test("입법 취지: the amendment behind the named 항·호, the one whose 개정이유 is about it, never after asOf", async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "leg-"));
+  fs.writeFileSync(path.join(dir, "law-versions.json"), JSON.stringify({ 건축법시행령: [
+    { date: "2015-12-28", mst: "1", kind: "일부개정" }, { date: "2016-07-19", mst: "2", kind: "일부개정" }, { date: "2020-01-01", mst: "3", kind: "일부개정" },
+  ] }));
+  fs.writeFileSync(path.join(dir, "law-reasons.json"), JSON.stringify({ 건축법시행령: [
+    { date: "2015-12-28", mst: "1", kind: "일부개정", text: "주차장 기준 정비" },
+    { date: "2016-07-19", mst: "2", kind: "일부개정", text: "◇ 주요내용\n가. 리모델링 활성화를 위하여 건축기준 완화 대상을 확대함(제6조제1항제6호)." },
+    { date: "2020-01-01", mst: "3", kind: "일부개정", text: "리모델링 완화 대상 명확화(제6조제1항제6호)" },
+  ] }));
+  process.env.BUILDLEX_DATA_DIR = dir;
+  const { pickAmendments, excerptReasons } = await import(`../lib/legislative.ts?leg=${Date.now()}`);
+  const chunk = { id: "c", lawKey: "건축법시행령", lawName: "건축법 시행령", articleNo: "제6조", heading: "적용의 완화", kind: "article",
+    text: "[제6조] 적용의 완화\n① 법 제5조제2항에 따라 완화할 수 있는 경우는 다음과 같다. <개정 2015. 12. 28., 2016. 7. 19., 2020. 1. 1.>\n1. 수면 위에 건축하는 건축물\n6. 리모델링이 필요한 건축물인 경우" };
+  const ev = [{ n: 1, chunk, score: 1, via: "search", reason: "질문에 인용된 조문", focus: { paras: [1], items: [6] } }];
+  // 6호 has no tag of its own: the 항's lead line supplies the dates, and the reason naming 제6조 / 리모델링 wins.
+  const [p] = pickAmendments(ev, ["리모델링", "완화"], 2, "2019-01-01");
+  assert.equal(p.date, "2016-07-19");
+  assert.equal(p.mst, "2");
+  assert.match(p.paragraph, /리모델링이 필요한/);
+  assert.match(excerptReasons(p.reason.split("\n"), "제6조", ["리모델링"]), /리모델링 활성화/);
+  // Without asOf the later, equally relevant amendment is taken.
+  assert.equal(pickAmendments(ev, ["리모델링", "완화"])[0].date, "2020-01-01");
+  delete process.env.BUILDLEX_DATA_DIR;
+});
