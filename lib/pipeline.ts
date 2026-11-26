@@ -289,11 +289,13 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
   };
   applyStructure();
   const structure = () => structureLines.join("\n");
+  // Time spent on precedent search and adjudication; later stage deadlines move by this much (maxDuration 120 s).
+  let shift = 0;
   // 해석례: for judgment questions, similar precedents by meaning (lib/precedent.ts), with their 이유.
   if (lawApiEnabled() && needsReasoning(input.query)) {
     const t = Date.now();
     interpretations = await findPrecedents({ query: input.query, analysis, structureLines, holdout: input.holdout, asOf: input.asOf }).catch(e => { warnings.push(`해석례 검색 실패: ${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`); return []; });
-    if (Date.now() - t > 8000) warnings.push(`해석례 검색에 ${Math.round((Date.now() - t) / 1000)}초가 걸렸습니다.`);
+    shift += Math.min(15000, Date.now() - t);
   }
   let notes = matchNotes(`${analysis.standalone} ${analysis.legalTerms.join(" ")}`, evidence.map(e => e.chunk.id));
   // 법리 노트: general interpretation principles matched on the question itself (lib/doctrine.ts).
@@ -310,16 +312,15 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
   // 4. 법리 분석 — independent syllogistic analyses vote; ungrounded conditions are dropped (lib/reason.ts).
   //    Contested issues are then adjudicated by a stronger model, which may take up to JUDGE_BUDGET_MS more.
   let reasoning: Consolidated | null = null;
-  let shift = 0;
-  if (hasLLM() && !isMock() && needsReasoning(input.query) && elapsed() < 24000) {
-    const r = await stage(emit, "reason", () => runReasoning(input.query, evidence, interpretations, doctrine, structure(), input.signal, elapsed),
+  if (hasLLM() && !isMock() && needsReasoning(input.query) && elapsed() < 24000 + shift) {
+    const r = await stage(emit, "reason", () => runReasoning(input.query, evidence, interpretations, doctrine, structure(), input.signal, () => elapsed() - shift),
       ({ c, errors }) => [c ? `독립 분석 ${c.runs}개 · ${c.issues.every(i => i.agree) ? "결론 일치" : "엇갈림"}${c.issues.some(i => /반대해석/.test(i.basis || "")) ? " · 반대해석 근거" : ""}${isContested(c, { query: input.query, structure: structure() }) ? " → 판정 모델로 검토" : ""}${c.issues.some(i => i.dropped.length) ? " · 근거 없는 조건 제외" : ""}` : "분석 실패", errors.length ? `(${errors.join(" | ")})` : ""].filter(Boolean).join(" ")).catch(() => null);
     reasoning = r?.c ?? null;
-    if (reasoning && isContested(reasoning, { query: input.query, structure: structure() }) && elapsed() < 40000) {
+    if (reasoning && isContested(reasoning, { query: input.query, structure: structure() }) && elapsed() < 40000 + shift) {
       const t = Date.now();
       const j = await stage(emit, "reason", () => adjudicate(input.query, reasoning!, evidence, structure(), doctrine, interpretations, input.signal),
         x => x.model ? `판정(${x.model}): 쟁점 ${contestedIssues(reasoning!, { query: input.query, structure: structure() }).length}개 검토 · 결론 변경 ${x.changed}개` : `판정 실패 (${x.errors.join(" | ")})`).catch(() => null);
-      shift = Date.now() - t;
+      shift += Date.now() - t;
       if (j && !j.model) { const m = `결론 판정 모델을 호출하지 못했습니다: ${j.errors.join(" | ").slice(0, 200)}`; warnings.push(m); emit({ type: "warning", message: m }); }
     }
   } else emit({ type: "stage", id: "reason", status: "skipped", detail: needsReasoning(input.query) ? "시간 부족" : "판단형 질문 아님" });
