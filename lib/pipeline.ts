@@ -330,8 +330,8 @@ async function runPipelineInner(input: AskInput, emit: Emit): Promise<void> {
   applyStructure();
   const structure = () => structureLines.join("\n");
   // Time spent on precedent search and adjudication; later stage deadlines move by this much (maxDuration 120 s).
-  // Larger models are slower: evaluation runs on them get 25 s more at each later deadline (maxDuration 120 s).
-  let shift = input.strongOnly ? 25000 : 0;
+  // Larger models are slower: evaluation runs on them get 40 s more at each later deadline (maxDuration 120 s).
+  let shift = input.strongOnly ? 40000 : 0;
   // 입법 취지: the 제·개정이유 of the amendment behind the provisions the question turns on (lib/legislative.ts),
   // fetched alongside the precedent search and appended to the structure block.
   const t0 = Date.now();
@@ -404,7 +404,7 @@ async function runPipelineInner(input: AskInput, emit: Emit): Promise<void> {
           // A stalled first attempt must not consume the whole 60 s function budget.
           const left = 52000 + shift - elapsed();
           const isJudge = model === judgeModel;
-          for await (const d of streamText(prompt, { model, signal: input.signal, timeoutMs: Math.max(10000, left), firstTokenMs: isJudge ? Math.min(25000, Math.max(8000, left - 25000)) : Math.min(15000, Math.max(6000, left - 20000)), thinking: isJudge && /gemini-3/.test(model) ? "low" : undefined })) { answer += d; emit({ type: "delta", text: d }); }
+          for await (const d of streamText(prompt, { model, signal: input.signal, timeoutMs: Math.max(10000, left), firstTokenMs: isJudge || strongOnly() ? Math.min(25000, Math.max(strongOnly() ? 18000 : 8000, left - 25000)) : Math.min(15000, Math.max(6000, left - 20000)), thinking: isJudge && /gemini-3/.test(model) ? "low" : undefined })) { answer += d; emit({ type: "delta", text: d }); }
           if (answer.trim()) {
             if (isJudge) emit({ type: "warning", message: `해석이 갈릴 수 있는 쟁점이라 ${model} 모델이 판정하고 답변을 작성했습니다.` });
             else if (strongOnly()) emit({ type: "warning", message: `평가 모드: ${model} 모델로 답변했습니다.` });
