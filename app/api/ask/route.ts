@@ -2,7 +2,8 @@ import { runPipeline } from "@/lib/pipeline";
 import type { EvalMode, SiteFacts, StreamEvent } from "@/lib/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// 120 s: a contested question may spend up to BUILDLEX_JUDGE_BUDGET_MS (30 s) more on adjudication.
+export const maxDuration = 120;
 export const dynamic = "force-dynamic";
 
 type Body = { query?: unknown; region?: unknown; facts?: unknown; history?: unknown; evalMode?: unknown; holdout?: unknown; noDoctrine?: unknown };

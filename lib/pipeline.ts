@@ -7,15 +7,34 @@ import { fetchAppendix, lawApiEnabled, searchInterpretations } from "./law-api.t
 import { FALLBACK_MODELS, FAST_MODEL, MODEL, generateJSON, hasLLM, isMock, streamText } from "./llm.ts";
 import { parseCitations, missingLaws } from "./cite.ts";
 import { formatDoctrines, matchDoctrines } from "./doctrine.ts";
-import { consolidate, formatAnalysis, ground, isContested, needsReasoning, parseAnalysis, reasonPrompt, type Consolidated } from "./reason.ts";
+import { applyJudgment, consolidate, contestedIssues, formatAnalysis, ground, isContested, judgePrompt, needsReasoning, parseAnalysis, reasonPrompt, type Consolidated } from "./reason.ts";
 import { analyzeStructure } from "./structure.ts";
 import { answerPrompt, analysisPrompt, formatEvidence, evaluationPrompt, rerankPrompt, type Note, type Turn } from "./prompts.ts";
 import { hybridSearch, type Reranker } from "./search.ts";
 
 /** BUILDLEX_RAG_LEAN=1: rely on hybrid (BM25+vector) ranking, skip the LLM rerank call, pass fewer provisions. */
 const LEAN = process.env.BUILDLEX_RAG_LEAN === "1";
-/** Stronger model that writes the answer when the analysis is contested (split votes or 반대해석). */
-const JUDGE_MODEL = process.env.GEMINI_JUDGE_MODEL || "gemini-flash-latest";
+/** Stronger models that adjudicate contested issues (split votes or 반대해석), tried in order. */
+const JUDGE_MODELS = (process.env.GEMINI_JUDGE_MODELS || "gemini-flash-latest,gemini-2.5-flash").split(",").map(s => s.trim()).filter(Boolean);
+/** Extra time a contested question may take for adjudication (route maxDuration is 120 s). */
+const JUDGE_BUDGET_MS = Number(process.env.BUILDLEX_JUDGE_BUDGET_MS || 30000);
+
+async function adjudicate(query: string, c: Consolidated, evidence: Evidence[], structure: string, doctrine: string, signal: AbortSignal | undefined): Promise<{ model?: string; changed: number; errors: string[] }> {
+  const prompt = judgePrompt({ query, c, structure, doctrine, evidenceText: formatEvidence(evidence, 20000, query) });
+  const errors: string[] = [];
+  const deadline = Date.now() + JUDGE_BUDGET_MS;
+  for (const model of JUDGE_MODELS) {
+    const left = deadline - Date.now();
+    if (left < 5000) break;
+    try {
+      const raw = await generateJSON<unknown>(prompt, { model, only: true, thinking: "low", timeoutMs: left, signal, maxTokens: 4096 });
+      const changed = applyJudgment(c, raw, model);
+      if (c.issues.some(i => i.judged)) return { model, changed, errors };
+      errors.push(`${model}: 판정 형식 불일치`);
+    } catch (e) { errors.push(`${model}: ${(e instanceof Error ? e.message : String(e)).slice(0, 90)}`); }
+  }
+  return { changed: 0, errors };
+}
 import { lawKeyOf, formatDate } from "./text.ts";
 import type { EvalMode, Evidence, EvidenceView, Interpretation, QueryAnalysis, SiteFacts, StageId, StreamEvent } from "./types.ts";
 import { verifyAnswer } from "./verify.ts";
@@ -277,11 +296,20 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
   for (const w of warnings) emit({ type: "warning", message: w });
 
   // 4. 법리 분석 — independent syllogistic analyses vote; ungrounded conditions are dropped (lib/reason.ts).
+  //    Contested issues are then adjudicated by a stronger model, which may take up to JUDGE_BUDGET_MS more.
   let reasoning: Consolidated | null = null;
+  let shift = 0;
   if (hasLLM() && !isMock() && needsReasoning(input.query) && elapsed() < 24000) {
     const r = await stage(emit, "reason", () => runReasoning(input.query, evidence, interpretations, doctrine, structure(), input.signal, elapsed),
       ({ c, errors }) => [c ? `독립 분석 ${c.runs}개 · ${c.issues.every(i => i.agree) ? "결론 일치" : "엇갈림"}${c.issues.some(i => /반대해석/.test(i.basis || "")) ? " · 반대해석 근거" : ""}${isContested(c) ? " → 판정 모델로 검토" : ""}${c.issues.some(i => i.dropped.length) ? " · 근거 없는 조건 제외" : ""}` : "분석 실패", errors.length ? `(${errors.join(" | ")})` : ""].filter(Boolean).join(" ")).catch(() => null);
     reasoning = r?.c ?? null;
+    if (reasoning && isContested(reasoning) && elapsed() < 40000) {
+      const t = Date.now();
+      const j = await stage(emit, "reason", () => adjudicate(input.query, reasoning!, evidence, structure(), doctrine, input.signal),
+        x => x.model ? `판정(${x.model}): 쟁점 ${contestedIssues(reasoning!).length}개 검토 · 결론 변경 ${x.changed}개` : `판정 실패 (${x.errors.join(" | ")})`).catch(() => null);
+      shift = Date.now() - t;
+      if (j && !j.model) { const m = `결론 판정 모델을 호출하지 못했습니다: ${j.errors.join(" | ").slice(0, 200)}`; warnings.push(m); emit({ type: "warning", message: m }); }
+    }
   } else emit({ type: "stage", id: "reason", status: "skipped", detail: needsReasoning(input.query) ? "시간 부족" : "판단형 질문 아님" });
 
   const generate = async (): Promise<string> => {
@@ -296,12 +324,11 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
       const prompt = answerPrompt({ query: input.query, analysis, region: effRegion?.label || "", evidence, interpretations, notes, warnings, history: input.history || [], missingLaws: absent, doctrine, reasoning: reasoning ? formatAnalysis(reasoning) : undefined, structure: structure(), contested });
       // Retry transient overload (429/503) with backoff, then fall back to other models,
       // and finally to an extractive answer so the retrieved evidence is never lost.
-      // A contested analysis is adjudicated by the stronger model first (model routing: only hard questions pay for it).
-      const models = [...new Set([...(contested ? [JUDGE_MODEL] : []), MODEL, ...FALLBACK_MODELS])];
+      const models = [...new Set([MODEL, ...FALLBACK_MODELS])];
       let lastError = "";
       const stalled = new Set<string>();
       for (const [i, model] of models.flatMap(m => [m, m]).entries()) {
-        if (elapsed() > 44000) break;
+        if (elapsed() > 44000 + shift) break;
         // A model that produced nothing within the first-token window is queued, not
         // rate-limited: retrying it burns the remaining budget, so go to the next model.
         if (stalled.has(model)) continue;
@@ -309,11 +336,10 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
         try {
           if (answer) { emit({ type: "reset" }); answer = ""; }
           // A stalled first attempt must not consume the whole 60 s function budget.
-          const left = 52000 - elapsed();
+          const left = 52000 + shift - elapsed();
           for await (const d of streamText(prompt, { model, signal: input.signal, timeoutMs: Math.max(10000, left), firstTokenMs: Math.min(15000, Math.max(6000, left - 20000)) })) { answer += d; emit({ type: "delta", text: d }); }
           if (answer.trim()) {
-            if (model === JUDGE_MODEL && contested) emit({ type: "warning", message: `분석이 엇갈리거나 반대해석에 기댄 쟁점이라 ${model} 모델이 결론을 검토했습니다.` });
-            else if (model !== MODEL) emit({ type: "warning", message: `기본 모델이 혼잡해 ${model} 모델로 답변했습니다.` });
+            if (model !== MODEL) emit({ type: "warning", message: `기본 모델이 혼잡해 ${model} 모델로 답변했습니다.` });
             return answer;
           }
         } catch (e) {
@@ -338,7 +364,7 @@ export async function runPipeline(input: AskInput, emit: Emit): Promise<void> {
   emit({ type: "verify", ok: check.ok, issues: check.issues });
 
   // 6. 품질 평가 / 자동 재검색
-  if (evalMode === "none" || !hasLLM() || elapsed() > 42000) {
+  if (evalMode === "none" || !hasLLM() || elapsed() > 42000 + shift) {
     emit({ type: "stage", id: "evaluate", status: "skipped", detail: evalMode === "none" ? "평가 없음 모드" : !hasLLM() ? "AI 키 없음" : "응답 시간 제한으로 생략" });
   } else try {
     const judge = async () => isMock()

@@ -41,7 +41,8 @@ export type ReasonIssue = {
 };
 export type LegalAnalysis = { issues: ReasonIssue[] };
 /** `alt` = best-grounded analysis reaching a different conclusion, kept when the votes split so the answer step can adjudicate. */
-export type Consolidated = { issues: (ReasonIssue & { votes: Verdict[]; agree: boolean; dropped: string[]; alt?: ReasonIssue })[]; runs: number; models: string[] };
+export type Judgment = { label: string; conclusion: Verdict; answer: string; reason: string; confidence: "높음" | "보통" | "낮음"; model: string };
+export type Consolidated = { issues: (ReasonIssue & { votes: Verdict[]; agree: boolean; dropped: string[]; alt?: ReasonIssue; judged?: Judgment })[]; runs: number; models: string[] };
 
 const VERDICTS: Verdict[] = ["예", "아니오", "조건부", "판단불가"];
 
@@ -161,6 +162,63 @@ export function consolidate(runs: { model: string; a: LegalAnalysis }[]): Consol
 
 const MET_KO: Record<Met, string> = { yes: "충족", no: "불충족", unknown: "사실 확인 필요" };
 
+// ───────────────────────────── adjudication ─────────────────────────────
+
+/** Issues the adjudicator has to decide: split votes, or a conclusion that rests on 반대해석. */
+export const contestedIssues = (c: Consolidated) => c.issues.filter(i => !i.agree || /반대해석/.test(i.basis || ""));
+
+/** A stronger model weighs the conclusion against the counter-reading for the contested issues only. */
+export function judgePrompt(p: { query: string; c: Consolidated; structure?: string; evidenceText: string; doctrine?: string }): string {
+  const issues = contestedIssues(p.c).map(i => [
+    `(${i.label}) 쟁점: ${i.issue}`,
+    `  분석 결론(${i.votes.filter(v => v === i.conclusion).length}/${i.votes.length}): ${i.conclusion} — ${i.answer}`,
+    `  그 근거 유형: ${i.basis || "-"}`,
+    ...i.rules.map(r => `  인용 [근거 ${r.n}]: "${r.quote}"`),
+    i.counter ? `  반론: ${i.counter}` : "",
+    i.alt ? `  반대 결론(${i.votes.filter(v => v === i.alt!.conclusion).length}/${i.votes.length}): ${i.alt.conclusion} — ${i.alt.answer}` : "",
+  ].filter(Boolean).join("\n")).join("\n\n");
+  return `너는 대한민국 법제처의 선임 법제관이다. 아래 쟁점은 하위 분석에서 결론이 엇갈렸거나 "그렇게 적혀 있지 않으니 아니다"라는 반대해석에 기대고 있다. [검색 근거] 원문과 [법령 구조 분석]만으로 결론을 다시 판정해 JSON으로만 답한다.
+
+[판정 방법]
+1. 결론을 좌우하는 문언이 대상을 명시적으로 한정·배제하는지 확인한다. 명시적이면 그 문언대로 판정한다.
+2. 명시가 없으면 반대해석은 결론의 근거가 되지 않는다. 준용 관계(바꿔 읽기), 용어의 정의·근거 조문, 같은 법령 안의 다른 조문과의 체계, 규정의 취지로 판정한다.
+3. 취지만으로 명확한 문언과 다른 결론을 내지 않는다.
+4. 원문으로 어느 쪽인지 확정되지 않으면 confidence를 "낮음"으로 둔다.
+
+[해석 원칙]
+${INTERPRETATION_CANONS}
+${p.doctrine ? `\n[법리 노트 — 여러 법령에 공통인 해석 원리]\n${p.doctrine}\n` : ""}
+[출력 JSON 형식]
+{"issues":[{"label":"가","conclusion":"예|아니오|조건부|판단불가","answer":"질문에 대한 한 문장 답","reason":"판정 이유 2~3문장(결론을 좌우한 문언과 근거 번호 포함)","confidence":"높음|보통|낮음"}]}
+
+[질문]
+${p.query}
+
+[판정할 쟁점]
+${issues}
+${p.structure ? `\n[법령 구조 분석 — 프로그램이 원문에서 계산한 관계]\n${p.structure}\n` : ""}
+[검색 근거]
+${p.evidenceText}`;
+}
+
+/** Applies the adjudicator's verdicts; returns how many issues changed conclusion. */
+export function applyJudgment(c: Consolidated, raw: unknown, model: string): number {
+  const list = arr((raw && typeof raw === "object" ? (raw as Record<string, unknown>).issues : undefined) ?? raw);
+  let changed = 0;
+  for (const x of list) {
+    const label = str(x.label, 8);
+    const issue = c.issues.find(i => i.label === label) ?? (contestedIssues(c).length === 1 ? contestedIssues(c)[0] : undefined);
+    if (!issue) continue;
+    const cs = str(x.conclusion, 10);
+    const conclusion = (VERDICTS.find(v => cs.startsWith(v)) ?? "판단불가") as Verdict;
+    const conf = str(x.confidence, 4);
+    const confidence = (conf.startsWith("높") ? "높음" : conf.startsWith("낮") ? "낮음" : "보통") as Judgment["confidence"];
+    issue.judged = { label: issue.label, conclusion, answer: str(x.answer, 400), reason: str(x.reason, 600), confidence, model };
+    if (conclusion !== issue.conclusion) changed++;
+  }
+  return changed;
+}
+
 /** Block handed to the answer prompt. */
 export function formatAnalysis(c: Consolidated): string {
   return c.issues.map(i => [
@@ -175,8 +233,15 @@ export function formatAnalysis(c: Consolidated): string {
     /반대해석/.test(i.basis || "") ? "  → 반대해석에 기댄 결론: 원문이 그 대상을 명시적으로 한정·배제하는지 다시 확인하고, 명시가 없으면 반론과 [법령 구조 분석]에 비추어 결론을 정할 것" : "",
     i.dropped.length ? `  ※ 근거 원문에서 찾지 못해 제외한 조건(결론·설명에 쓰지 말 것): ${i.dropped.join("; ")}` : "",
     i.agree
-      ? `  결론: ${i.conclusion} — ${i.answer} [독립 분석 ${i.votes.length}개 일치]`
-      : `  결론(다수 ${i.votes.filter(v => v === i.conclusion).length}/${i.votes.length}): ${i.conclusion} — ${i.answer}`,
+      ? `  분석 결론: ${i.conclusion} — ${i.answer} [독립 분석 ${i.votes.length}개 일치]`
+      : `  분석 결론(다수 ${i.votes.filter(v => v === i.conclusion).length}/${i.votes.length}): ${i.conclusion} — ${i.answer}`,
+    ...(i.judged ? [
+      `  ▶ 판정(${i.judged.model}, 확신도 ${i.judged.confidence}): ${i.judged.conclusion} — ${i.judged.answer}`,
+      `    판정 이유: ${i.judged.reason}`,
+      i.judged.confidence === "낮음"
+        ? "    → 판정 확신도 낮음: 결론 첫 문장에 '해석이 갈릴 수 있는 쟁점'이라고 밝히고 더 유력한 해석과 반대 해석을 함께 쓸 것"
+        : "    → 이 쟁점은 판정 결론을 결론 첫 문장으로 쓸 것(분석 결론보다 우선)",
+    ] : []),
     ...(!i.agree && i.alt ? [
       `  반대 결론(${i.votes.filter(v => v === i.alt!.conclusion).length}/${i.votes.length}): ${i.alt.conclusion} — ${i.alt.answer}`,
       ...i.alt.rules.map(r => `    반대 측 대전제 [근거 ${r.n}]: "${r.quote}"`),

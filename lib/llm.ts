@@ -19,13 +19,13 @@ function headers() {
   return { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY || "" };
 }
 
-type JSONOpts = { model?: string; timeoutMs?: number; maxTokens?: number; signal?: AbortSignal; images?: InlineImage[]; /** Keep "thinking" short: thinkingLevel "low" on Gemini 3 / *-latest, thinkingBudget 1024 on 2.5. Dropped if the model rejects it. */ thinking?: "low"; temperature?: number };
+type JSONOpts = { model?: string; timeoutMs?: number; maxTokens?: number; signal?: AbortSignal; images?: InlineImage[]; /** Keep "thinking" short: thinkingLevel "low" on Gemini 3 / *-latest, thinkingBudget 1024 on 2.5. Dropped if the model rejects it. */ thinking?: "low"; temperature?: number; /** Only the given model: no fallback to the main/lighter models. */ only?: boolean };
 
 export async function generateJSON<T>(prompt: string, opts: JSONOpts = {}): Promise<T> {
   // Try the requested (fast) model, then the main model, then aliases — but only for
   // quick failures (overload, missing model, empty/invalid JSON). A timeout is final:
   // retrying it would blow the request's time budget.
-  const models = [...new Set([opts.model || FAST_MODEL, MODEL, ...FALLBACK_MODELS])].slice(0, 3);
+  const models = opts.only ? [opts.model || FAST_MODEL] : [...new Set([opts.model || FAST_MODEL, MODEL, ...FALLBACK_MODELS])].slice(0, 3);
   const deadline = Date.now() + (opts.timeoutMs ?? 12000);
   let last: unknown;
   for (const model of models) {
